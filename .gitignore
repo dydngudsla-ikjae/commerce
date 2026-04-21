@@ -1,0 +1,31 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Gradle
+.gradle/
+build/
+
+# Compiled
+*.class
+*.jar
+*.war
+
+# Gradle wrapper jar 예외
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Spring secrets
+**/application-local.yml
+**/application-secret.yml
+
+# QueryDSL generated
+**/src/main/generated/
