@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
@@ -11,6 +14,7 @@ import java.time.LocalDateTime;
 @Table(name = "members")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@EntityListeners(AuditingEntityListener.class)
 public class Member {
 
     @Id
@@ -39,9 +43,22 @@ public class Member {
 
     private LocalDateTime lastLoginAt;
 
+    @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @LastModifiedDate
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    public static Member create(String email, String encodedPassword, String name) {
+        Member member = new Member();
+        member.email = email;
+        member.password = encodedPassword;
+        member.name = name;
+        member.role = MemberRole.CUSTOMER;
+        member.status = MemberStatus.ACTIVE;
+        member.loginFailCount = 0;
+        return member;
+    }
 }
