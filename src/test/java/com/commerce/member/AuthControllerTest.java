@@ -311,4 +311,66 @@ class AuthControllerTest {
 
         assertThat(response.getBody().refreshToken()).isNotBlank();
     }
+
+    @Test
+    @DisplayName("로그인 API가 성공 시 login_fail_count를 0으로 초기화한다")
+    void login_resets_login_fail_count_on_success() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        var wrongBody = Map.of("email", "user@example.com", "password", "WrongPass1!");
+        var correctBody = Map.of("email", "user@example.com", "password", "Password1!");
+
+        // 4회 실패 (임계치 5회 미만)
+        for (int i = 0; i < 4; i++) {
+            catchThrowableOfType(
+                    () -> client.post()
+                            .uri("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(wrongBody)
+                            .retrieve()
+                            .toBodilessEntity(),
+                    HttpClientErrorException.Unauthorized.class
+            );
+        }
+
+        // 성공 로그인으로 fail_count 초기화
+        client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(correctBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 초기화되었으면 4번 더 실패해도 LOCKED가 아님 (총 4번 실패 → 잠기지 않아야)
+        for (int i = 0; i < 4; i++) {
+            catchThrowableOfType(
+                    () -> client.post()
+                            .uri("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(wrongBody)
+                            .retrieve()
+                            .toBodilessEntity(),
+                    HttpClientErrorException.Unauthorized.class
+            );
+        }
+
+        var response = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(correctBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
 }
