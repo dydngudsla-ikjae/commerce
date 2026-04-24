@@ -403,4 +403,26 @@ class AuthControllerTest {
 
         assertThat(response.getBody().lastLoginAt()).isNotNull();
     }
+
+    @Test
+    @DisplayName("로그인 API가 존재하지 않는 이메일에 401 AUTH_INVALID를 반환한다")
+    void login_returns_401_for_unknown_email() {
+        var loginBody = Map.of(
+                "email", "unknown@example.com",
+                "password", "Password1!"
+        );
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(loginBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
+    }
 }
