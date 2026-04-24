@@ -202,4 +202,23 @@ class AuthControllerTest {
                         .toBodilessEntity()
         ).isInstanceOf(HttpClientErrorException.BadRequest.class);
     }
+
+    @Test
+    @DisplayName("회원가입 API가 숫자 없는 비밀번호를 거부한다")
+    void signup_rejects_password_without_digit() {
+        var body = Map.of(
+                "email", "user@example.com",
+                "password", "Password!",
+                "name", "홍길동"
+        );
+
+        assertThatThrownBy(() ->
+                client.post()
+                        .uri("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body)
+                        .retrieve()
+                        .toBodilessEntity()
+        ).isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
 }
