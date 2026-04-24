@@ -5,6 +5,7 @@ import com.commerce.global.exception.ErrorCode;
 import com.commerce.member.domain.Member;
 import com.commerce.member.infrastructure.MemberRepository;
 import com.commerce.member.presentation.SignupRequest;
+import com.commerce.member.presentation.SignupResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
-    public void signup(SignupRequest request) {
+    public SignupResponse signup(SignupRequest request) {
         String email = request.getEmail().toLowerCase();
         if (memberRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.MEMBER_ALREADY_EXISTS);
@@ -26,5 +27,6 @@ public class AuthService {
         String encodedPassword = passwordEncoder.encode(request.getPassword());
         Member member = Member.create(email, encodedPassword, request.getName());
         memberRepository.save(member);
+        return new SignupResponse(member.getEmail(), member.getRole(), member.getStatus());
     }
 }

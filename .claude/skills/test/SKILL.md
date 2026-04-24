@@ -16,7 +16,6 @@ allowed-tools: Read, Grep, Glob, Bash(./gradlew test:*)
 
 ```java
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Transactional
 class FeatureTest {
 
     @LocalServerPort
@@ -24,12 +23,18 @@ class FeatureTest {
 
     private RestClient client;
 
+    @Autowired
+    private SomeRepository someRepository; // 테스트 데이터 정리 전용 (검증 금지)
+
     @BeforeEach
     void setUp() {
         client = RestClient.create("http://localhost:" + port);
+        someRepository.deleteAll(); // RANDOM_PORT 사용 시 @Transactional이 격리 보장 안 됨
     }
 }
 ```
+
+> **주의**: `RANDOM_PORT`를 사용하면 서버가 별도 스레드에서 실행되므로 `@Transactional`로 테스트 데이터 격리가 되지 않는다. `@BeforeEach`에서 Repository로 데이터를 직접 정리한다. Repository는 **셋업 목적**으로만 허용하며 검증에는 사용 금지.
 
 ## 테스트 작성 패턴
 
@@ -99,5 +104,5 @@ void invalidRequestReturns400() {
 1. 테스트 메서드명은 camelCase 영어로 작성하고 @DisplayName("") 이용해서 한글 매핑한다.
 2. 상태 검증은 응답(status code, response body) 또는 검증용 GET 요청으로만 확인
 3. Repository 직접 조회 금지
-4. @Transactional로 테스트 간 데이터 격리 보장
+4. `RANDOM_PORT` 사용 시 `@BeforeEach`에서 Repository.deleteAll()로 데이터 정리. Repository는 셋업 전용, 검증 금지
 5. 테스트 작성 후 `./gradlew test` 실행하여 통과 확인

@@ -35,15 +35,69 @@ model: sonnet
 
 - 테스트 메서드명은 **영어 camelCase**로 작성한다
 - 한국어 설명은 `@DisplayName` 어노테이션으로 제공한다
-- Spring Boot 통합 테스트 스타일 (MockMvc, 실제 Spring 컨텍스트, H2 DB)
-- Mock은 최소화한다
+- Spring Boot 통합 테스트 스타일: `@SpringBootTest(webEnvironment = RANDOM_PORT)` + `RestClient` + H2 DB
+- **Mock 사용 금지. 검증 목적의 Repository 직접 조회 금지.**
+- 검증은 응답(status code, response body) 또는 검증용 추가 GET 요청으로만 확인한다
+- `RANDOM_PORT` 사용 시 `@Transactional`이 격리 보장 안 됨 → `@BeforeEach`에서 Repository.deleteAll()로 데이터 정리
 
 ```java
-@Test
-@DisplayName("회원가입 API가 유효한 이메일과 비밀번호로 회원을 등록한다")
-void signupWithValidEmailAndPassword_returns201() throws Exception {
-    // ...
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class FeatureTest {
+
+    @LocalServerPort
+    private int port;
+
+    private RestClient client;
+
+    @Autowired
+    private SomeRepository someRepository;
+
+    @BeforeEach
+    void setUp() {
+        client = RestClient.create("http://localhost:" + port);
+        someRepository.deleteAll();
+    }
+
+    @Test
+    @DisplayName("유효한 요청이면 201을 반환한다")
+    void validRequestReturns201() {
+        var body = Map.of("field", "value");
+
+        var response = client.post()
+            .uri("/api/some-endpoint")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(body)
+            .retrieve()
+            .toEntity(SomeResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().getField()).isEqualTo("value");
+    }
+
+    @Test
+    @DisplayName("잘못된 요청이면 400을 반환한다")
+    void invalidRequestReturns400() {
+        var body = Map.of("field", "");
+
+        assertThatThrownBy(() ->
+            client.post()
+                .uri("/api/some-endpoint")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity()
+        ).isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
 }
+```
+
+에러 응답 body까지 검증해야 할 경우 `catchThrowableOfType` 사용:
+```java
+var ex = catchThrowableOfType(
+    () -> client.post().uri(...).retrieve().toBodilessEntity(),
+    HttpClientErrorException.Conflict.class
+);
+assertThat(ex.getResponseBodyAsString()).contains("ERROR_CODE");
 ```
 
 테스트를 실행해 **실패(Red)** 하는지 확인한다. 예상치 못하게 통과하면 즉시 보고하고 중단한다.
