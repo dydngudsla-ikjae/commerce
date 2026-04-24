@@ -75,7 +75,7 @@ class AuthControllerTest {
         String savedEmail = memberRepository.findAll().get(0).getEmail();
         assertThat(savedEmail).isEqualTo("user@example.com");
     }
-
+    
     @Test
     @DisplayName("회원가입 API가 비밀번호를 bcrypt로 암호화해 저장한다")
     void signup_stores_password_encoded_with_bcrypt() throws Exception {
@@ -94,5 +94,23 @@ class AuthControllerTest {
         String savedPassword = memberRepository.findAll().get(0).getPassword();
         assertThat(savedPassword).isNotEqualTo(rawPassword);
         assertThat(passwordEncoder.matches(rawPassword, savedPassword)).isTrue();
+    }
+
+    @Test
+    @DisplayName("회원가입 API가 기본 role을 CUSTOMER로 설정한다")
+    void signup_sets_default_role_to_customer() throws Exception {
+        Map<String, String> body = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated());
+
+        com.commerce.member.domain.MemberRole savedRole = memberRepository.findAll().get(0).getRole();
+        assertThat(savedRole).isEqualTo(com.commerce.member.domain.MemberRole.CUSTOMER);
     }
 }
