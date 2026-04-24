@@ -1,4 +1,6 @@
 package com.commerce.member.presentation;
 
-public record LoginResponse(String accessToken, String refreshToken) {
+import java.time.LocalDateTime;
+
+public record LoginResponse(String accessToken, String refreshToken, LocalDateTime lastLoginAt) {
 }

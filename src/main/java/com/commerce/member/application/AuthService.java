@@ -65,6 +65,6 @@ public class AuthService {
         refreshTokenRepository.deleteByMemberId(member.getId());
         refreshTokenRepository.save(RefreshToken.create(member.getId(), refreshTokenStr, expiresAt));
 
-        return new LoginResponse(accessToken, refreshTokenStr);
+        return new LoginResponse(accessToken, refreshTokenStr, member.getLastLoginAt());
     }
 }
