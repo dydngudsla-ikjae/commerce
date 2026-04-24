@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -32,6 +33,9 @@ class AuthControllerTest {
     @Autowired
     private MemberRepository memberRepository;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
     @BeforeEach
     void setUp() {
         memberRepository.deleteAll();
@@ -52,5 +56,43 @@ class AuthControllerTest {
                 .andExpect(status().isCreated());
 
         assertThat(memberRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("회원가입 API가 이메일을 소문자로 저장한다")
+    void signup_stores_email_in_lowercase() throws Exception {
+        Map<String, String> body = Map.of(
+                "email", "USER@EXAMPLE.COM",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated());
+
+        String savedEmail = memberRepository.findAll().get(0).getEmail();
+        assertThat(savedEmail).isEqualTo("user@example.com");
+    }
+
+    @Test
+    @DisplayName("회원가입 API가 비밀번호를 bcrypt로 암호화해 저장한다")
+    void signup_stores_password_encoded_with_bcrypt() throws Exception {
+        String rawPassword = "Password1!";
+        Map<String, String> body = Map.of(
+                "email", "user@example.com",
+                "password", rawPassword,
+                "name", "홍길동"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated());
+
+        String savedPassword = memberRepository.findAll().get(0).getPassword();
+        assertThat(savedPassword).isNotEqualTo(rawPassword);
+        assertThat(passwordEncoder.matches(rawPassword, savedPassword)).isTrue();
     }
 }
