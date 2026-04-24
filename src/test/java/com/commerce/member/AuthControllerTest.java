@@ -153,4 +153,19 @@ class AuthControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MEMBER_ALREADY_EXISTS"));
     }
+
+    @Test
+    @DisplayName("회원가입 API가 8자 미만 비밀번호를 거부한다")
+    void signup_rejects_password_shorter_than_8_chars() throws Exception {
+        Map<String, String> body = Map.of(
+                "email", "user@example.com",
+                "password", "Pass1!",
+                "name", "홍길동"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
 }
