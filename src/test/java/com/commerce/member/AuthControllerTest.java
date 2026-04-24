@@ -113,4 +113,22 @@ class AuthControllerTest {
         com.commerce.member.domain.MemberRole savedRole = memberRepository.findAll().get(0).getRole();
         assertThat(savedRole).isEqualTo(com.commerce.member.domain.MemberRole.CUSTOMER);
     }
+
+    @Test
+    @DisplayName("회원가입 API가 기본 status를 ACTIVE로 설정한다")
+    void signup_sets_default_status_to_active() throws Exception {
+        Map<String, String> body = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated());
+
+        com.commerce.member.domain.MemberStatus savedStatus = memberRepository.findAll().get(0).getStatus();
+        assertThat(savedStatus).isEqualTo(com.commerce.member.domain.MemberStatus.ACTIVE);
+    }
 }
