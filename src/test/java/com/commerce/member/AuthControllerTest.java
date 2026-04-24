@@ -281,4 +281,34 @@ class AuthControllerTest {
 
         assertThat(response.getBody().accessToken()).isNotBlank();
     }
+
+    @Test
+    @DisplayName("로그인 API가 성공 시 Refresh Token을 발급하고 DB에 저장한다")
+    void login_issues_refresh_token_and_saves_to_db() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        var loginBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!"
+        );
+
+        var response = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        assertThat(response.getBody().refreshToken()).isNotBlank();
+    }
 }
