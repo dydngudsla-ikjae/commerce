@@ -18,4 +18,10 @@ public class AuthController {
     public SignupResponse signup(@Valid @RequestBody SignupRequest request) {
         return authService.signup(request);
     }
+
+    @PostMapping("/login")
+    @ResponseStatus(HttpStatus.OK)
+    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+        return authService.login(request);
+    }
 }

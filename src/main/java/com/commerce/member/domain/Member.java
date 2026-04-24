@@ -61,4 +61,20 @@ public class Member {
         member.loginFailCount = 0;
         return member;
     }
+
+    public boolean isLoginable() {
+        return this.status == MemberStatus.ACTIVE;
+    }
+
+    public void onLoginSuccess() {
+        this.loginFailCount = 0;
+        this.lastLoginAt = LocalDateTime.now();
+    }
+
+    public void onLoginFail() {
+        this.loginFailCount++;
+        if (this.loginFailCount >= 5) {
+            this.status = MemberStatus.LOCKED;
+        }
+    }
 }

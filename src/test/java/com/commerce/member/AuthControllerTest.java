@@ -221,4 +221,34 @@ class AuthControllerTest {
                         .toBodilessEntity()
         ).isInstanceOf(HttpClientErrorException.BadRequest.class);
     }
+
+    @Test
+    @DisplayName("로그인 API가 유효한 자격증명으로 인증에 성공한다")
+    void loginWithValidCredentials_returns200() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        var loginBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!"
+        );
+
+        var response = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
 }
