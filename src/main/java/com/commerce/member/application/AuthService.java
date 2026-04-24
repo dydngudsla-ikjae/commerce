@@ -18,7 +18,7 @@ public class AuthService {
     @Transactional
     public void signup(SignupRequest request) {
         String encodedPassword = passwordEncoder.encode(request.getPassword());
-        Member member = Member.create(request.getEmail(), encodedPassword, request.getName());
+        Member member = Member.create(request.getEmail().toLowerCase(), encodedPassword, request.getName());
         memberRepository.save(member);
     }
 }

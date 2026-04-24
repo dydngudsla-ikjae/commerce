@@ -3,5 +3,9 @@
     "allow": [
       "Bash(./gradlew test *)"
     ]
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
   }
 }
