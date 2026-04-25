@@ -489,6 +489,30 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("인증 필터가 만료된 Access Token으로 인증 컨텍스트를 비운다")
+    void authFilter_clears_context_with_expired_access_token() {
+        // 만료된 Access Token 생성
+        com.commerce.global.jwt.JwtProvider expiredJwtProvider = new com.commerce.global.jwt.JwtProvider(
+                "dGVzdFNlY3JldEtleUZvclRlc3RpbmdQdXJwb3NlT25seTE=",
+                -1L,  // 이미 만료됨
+                604800000L
+        );
+        String expiredAccessToken = expiredJwtProvider.generateAccessToken(1L, "CUSTOMER");
+
+        // 만료된 Access Token으로 인증이 필요한 엔드포인트 호출 → 401
+        var ex = catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/members/me")
+                        .header("Authorization", "Bearer " + expiredAccessToken)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("인증 필터가 유효한 Access Token으로 인증 컨텍스트를 설정한다")
     void authFilter_sets_authentication_context_with_valid_access_token() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
