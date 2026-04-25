@@ -489,6 +489,33 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급 API가 만료된 Refresh Token에 401 TOKEN_EXPIRED를 반환한다")
+    void refresh_returns_401_for_expired_refresh_token() {
+        // 만료된 Refresh Token 생성 (만료 시간을 과거로 설정)
+        // JwtProvider를 직접 사용하여 -1ms 만료 토큰 생성
+        com.commerce.global.jwt.JwtProvider jwtProvider = new com.commerce.global.jwt.JwtProvider(
+                "dGVzdFNlY3JldEtleUZvclRlc3RpbmdQdXJwb3NlT25seTE=",
+                1800000L,
+                -1L  // 이미 만료됨
+        );
+        String expiredToken = jwtProvider.generateRefreshToken(999L);
+
+        var refreshBody = Map.of("refreshToken", expiredToken);
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(refreshBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_EXPIRED");
+    }
+
+    @Test
     @DisplayName("토큰 재발급 API가 재발급 후 기존 Refresh Token을 삭제한다")
     void refresh_deletes_old_refresh_token_after_reissue() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
