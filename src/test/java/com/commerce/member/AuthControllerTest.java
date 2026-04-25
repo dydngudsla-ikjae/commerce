@@ -489,6 +489,41 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("회원 탈퇴 API가 탈퇴 후 동일 이메일로 재가입을 허용한다")
+    void withdraw_allows_re_signup_with_same_email() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+
+        // 탈퇴 요청
+        client.delete()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 동일 이메일로 재가입 → 성공해야 함
+        var reSignupResponse = client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.SignupResponse.class);
+
+        assertThat(reSignupResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(reSignupResponse.getBody().email()).isEqualTo("user@example.com");
+    }
+
+    @Test
     @DisplayName("회원 탈퇴 API가 탈퇴 시 Refresh Token을 삭제한다")
     void withdraw_deletes_refresh_token() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
