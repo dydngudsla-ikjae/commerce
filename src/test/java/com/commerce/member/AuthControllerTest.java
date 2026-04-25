@@ -489,6 +489,35 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("인증 필터가 ADMIN 권한 없는 회원의 admin 엔드포인트 접근 시 403을 반환한다")
+    void authFilter_returns_403_for_customer_accessing_admin_endpoint() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+
+        // CUSTOMER 권한으로 admin 엔드포인트 접근 → 403
+        var ex = catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/admin/test")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Forbidden.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("인증 필터가 Refresh Token을 Access Token으로 사용하면 인증 컨텍스트를 비운다")
     void authFilter_clears_context_when_refresh_token_used_as_access_token() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
