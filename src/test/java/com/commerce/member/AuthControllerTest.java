@@ -405,6 +405,40 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("로그인 API가 비밀번호 불일치 시 401 AUTH_INVALID를 반환한다")
+    void login_returns_401_for_wrong_password() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        var loginBody = Map.of(
+                "email", "user@example.com",
+                "password", "WrongPass1!"
+        );
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(loginBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
+    }
+
+    @Test
     @DisplayName("로그인 API가 존재하지 않는 이메일에 401 AUTH_INVALID를 반환한다")
     void login_returns_401_for_unknown_email() {
         var loginBody = Map.of(
