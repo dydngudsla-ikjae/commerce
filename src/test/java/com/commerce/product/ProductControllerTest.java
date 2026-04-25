@@ -73,6 +73,10 @@ class ProductControllerTest {
         return jwtProvider.generateAccessToken(0L, "ADMIN");
     }
 
+    private String createCustomerToken() {
+        return jwtProvider.generateAccessToken(0L, "CUSTOMER");
+    }
+
     private Long createCategory(String name) {
         var response = client.post()
                 .uri("/api/v1/admin/categories")
@@ -202,11 +206,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.post()
                         .uri("/api/v1/admin/categories")
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body)
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== 카테고리 목록 조회 ====================
@@ -296,11 +301,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.post()
                         .uri("/api/v1/admin/products")
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(body)
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== 상품 목록 조회 ====================
@@ -625,11 +631,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.put()
                         .uri("/api/v1/admin/products/" + productId)
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("name", "후드티", "status", "ON_SALE", "categoryId", categoryId))
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== 상품 삭제 ====================
@@ -709,9 +716,10 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.delete()
                         .uri("/api/v1/admin/products/" + productId)
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== 옵션 추가 ====================
@@ -784,11 +792,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.post()
                         .uri("/api/v1/admin/products/" + productId + "/options")
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("name", "COLOR", "values", List.of("BLACK")))
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== Variant 생성 ====================
@@ -885,11 +894,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.post()
                         .uri("/api/v1/admin/products/" + productId + "/variants")
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("price", 10000L, "stock", 5))
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== Variant 수정 ====================
@@ -942,11 +952,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.put()
                         .uri("/api/v1/admin/variants/" + variantId)
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("price", 15000L, "status", "ON_SALE"))
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== 재고 수정 ====================
@@ -1054,11 +1065,12 @@ class ProductControllerTest {
         assertThatThrownBy(() ->
                 client.put()
                         .uri("/api/v1/admin/variants/" + variantId + "/stock")
+                        .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("stock", 10))
                         .retrieve()
                         .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
     // ==================== 재고 동시성 ====================
