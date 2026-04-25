@@ -489,6 +489,45 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("회원 탈퇴 API가 회원 status를 DELETED로 변경한다")
+    void withdraw_changes_member_status_to_deleted() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+
+        // 탈퇴 요청
+        var withdrawResponse = client.delete()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(withdrawResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // 탈퇴 후 로그인 시도 → DELETED 상태로 인해 실패
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(loginBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("로그아웃 API가 인증 없이 요청 시 401을 반환한다")
     void logout_returns_401_without_authentication() {
         var ex = catchThrowableOfType(

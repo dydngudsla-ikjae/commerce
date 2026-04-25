@@ -80,4 +80,10 @@ public class Member {
             this.status = MemberStatus.LOCKED;
         }
     }
+
+    public void withdraw(String deletedEmail) {
+        this.status = MemberStatus.DELETED;
+        this.email = deletedEmail;
+        this.name = "탈퇴 사용자";
+    }
 }
