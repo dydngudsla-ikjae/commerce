@@ -9,8 +9,13 @@ import com.commerce.member.infrastructure.MemberRepository;
 import com.commerce.member.infrastructure.RefreshTokenRepository;
 import com.commerce.member.presentation.LoginRequest;
 import com.commerce.member.presentation.LoginResponse;
+import com.commerce.member.presentation.RefreshRequest;
+import com.commerce.member.presentation.RefreshResponse;
 import com.commerce.member.presentation.SignupRequest;
 import com.commerce.member.presentation.SignupResponse;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -76,5 +81,48 @@ public class AuthService {
         }
 
         return new LoginResponse(accessToken, refreshTokenStr, lastLoginAt);
+    }
+
+    @Transactional
+    public RefreshResponse refresh(RefreshRequest request) {
+        String tokenValue = request.getRefreshToken();
+
+        Claims claims;
+        try {
+            claims = jwtProvider.parse(tokenValue);
+        } catch (ExpiredJwtException e) {
+            throw new BusinessException(ErrorCode.TOKEN_EXPIRED);
+        } catch (JwtException e) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID);
+        }
+
+        String type = claims.get("type", String.class);
+        if (!"refresh".equals(type)) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID);
+        }
+
+        Long memberId;
+        try {
+            memberId = Long.parseLong(claims.getSubject());
+        } catch (NumberFormatException e) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID);
+        }
+
+        RefreshToken storedToken = refreshTokenRepository.findByToken(tokenValue)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
+
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
+
+        refreshTokenRepository.delete(storedToken);
+
+        String newAccessToken = jwtProvider.generateAccessToken(member.getId(), member.getRole().name());
+        String newRefreshTokenStr = jwtProvider.generateRefreshToken(member.getId());
+
+        LocalDateTime expiresAt = LocalDateTime.now()
+                .plusSeconds(jwtProvider.getRefreshExpirationMs() / 1000);
+        refreshTokenRepository.save(RefreshToken.create(member.getId(), newRefreshTokenStr, expiresAt));
+
+        return new RefreshResponse(newAccessToken, newRefreshTokenStr);
     }
 }

@@ -489,6 +489,37 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급 API가 유효한 Refresh Token으로 새 Access Token과 Refresh Token을 발급한다")
+    void refresh_issues_new_tokens_with_valid_refresh_token() {
+        // 회원가입 후 로그인하여 Refresh Token 획득
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String refreshToken = loginResponse.getBody().refreshToken();
+
+        // 재발급 요청
+        var refreshBody = Map.of("refreshToken", refreshToken);
+        var response = client.post()
+                .uri("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(refreshBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.RefreshResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().accessToken()).isNotBlank();
+        assertThat(response.getBody().refreshToken()).isNotBlank();
+    }
+
+    @Test
     @DisplayName("로그인 API가 last_login_at 업데이트 실패 시에도 로그인을 성공 처리한다")
     void login_succeeds_even_if_last_login_at_update_fails() {
         var signupBody = Map.of(
