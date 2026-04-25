@@ -1,9 +1,11 @@
 package com.commerce.member.presentation;
 
+import com.commerce.global.jwt.AuthMember;
 import com.commerce.member.application.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -29,5 +31,11 @@ public class AuthController {
     @ResponseStatus(HttpStatus.OK)
     public RefreshResponse refresh(@Valid @RequestBody RefreshRequest request) {
         return authService.refresh(request);
+    }
+
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@AuthenticationPrincipal AuthMember authMember) {
+        authService.logout(authMember.id());
     }
 }

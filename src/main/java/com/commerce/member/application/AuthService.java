@@ -84,6 +84,11 @@ public class AuthService {
     }
 
     @Transactional
+    public void logout(Long memberId) {
+        refreshTokenRepository.deleteByMemberId(memberId);
+    }
+
+    @Transactional
     public RefreshResponse refresh(RefreshRequest request) {
         String tokenValue = request.getRefreshToken();
 

@@ -489,6 +489,48 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("로그아웃 API가 로그아웃 시 Refresh Token을 삭제한다")
+    void logout_deletes_refresh_token() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+        String refreshToken = loginResponse.getBody().refreshToken();
+
+        // 로그아웃 요청
+        var logoutResponse = client.post()
+                .uri("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(logoutResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // 로그아웃 후 Refresh Token으로 재발급 시도 → 삭제되었으므로 실패
+        var refreshBody = Map.of("refreshToken", refreshToken);
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(refreshBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_INVALID");
+    }
+
+    @Test
     @DisplayName("토큰 재발급 API가 이미 사용된 Refresh Token 재사용 시 401 TOKEN_INVALID를 반환한다")
     void refresh_returns_401_when_reusing_already_used_token() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
