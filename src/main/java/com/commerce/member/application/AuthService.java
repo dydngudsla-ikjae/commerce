@@ -26,6 +26,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final LoginFailService loginFailService;
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
@@ -50,7 +51,7 @@ public class AuthService {
         }
 
         if (!passwordEncoder.matches(request.getPassword(), member.getPassword())) {
-            member.onLoginFail();
+            loginFailService.recordLoginFail(member.getId());
             throw new BusinessException(ErrorCode.AUTH_INVALID);
         }
 

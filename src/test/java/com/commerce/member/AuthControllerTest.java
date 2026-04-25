@@ -439,6 +439,51 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("로그인 API가 LOCKED 회원에 401 AUTH_INVALID를 반환한다")
+    void login_returns_401_for_locked_member() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 5회 실패로 LOCKED 전환
+        var wrongBody = Map.of("email", "user@example.com", "password", "WrongPass1!");
+        for (int i = 0; i < 5; i++) {
+            catchThrowableOfType(
+                    () -> client.post()
+                            .uri("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(wrongBody)
+                            .retrieve()
+                            .toBodilessEntity(),
+                    HttpClientErrorException.Unauthorized.class
+            );
+        }
+
+        // 올바른 비밀번호로 시도해도 LOCKED이므로 거부
+        var correctBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(correctBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
+    }
+
+    @Test
     @DisplayName("로그인 API가 존재하지 않는 이메일에 401 AUTH_INVALID를 반환한다")
     void login_returns_401_for_unknown_email() {
         var loginBody = Map.of(
