@@ -489,6 +489,20 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("로그아웃 API가 인증 없이 요청 시 401을 반환한다")
+    void logout_returns_401_without_authentication() {
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/logout")
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("로그아웃 API가 로그아웃 시 Refresh Token을 삭제한다")
     void logout_deletes_refresh_token() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
