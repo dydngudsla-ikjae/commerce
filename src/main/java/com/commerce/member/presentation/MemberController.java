@@ -14,9 +14,18 @@ public class MemberController {
 
     private final MemberService memberService;
 
+    @GetMapping("/me")
+    @ResponseStatus(HttpStatus.OK)
+    public MemberInfo me(@AuthenticationPrincipal AuthMember authMember) {
+        return new MemberInfo(authMember.id(), authMember.role());
+    }
+
     @DeleteMapping("/me")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void withdraw(@AuthenticationPrincipal AuthMember authMember) {
         memberService.withdraw(authMember.id());
+    }
+
+    public record MemberInfo(Long id, String role) {
     }
 }

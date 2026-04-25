@@ -489,6 +489,33 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("인증 필터가 유효한 Access Token으로 인증 컨텍스트를 설정한다")
+    void authFilter_sets_authentication_context_with_valid_access_token() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+
+        // 인증이 필요한 엔드포인트 호출 → 성공해야 함
+        var meResponse = client.get()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.MemberController.MemberInfo.class);
+
+        assertThat(meResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(meResponse.getBody().role()).isEqualTo("CUSTOMER");
+    }
+
+    @Test
     @DisplayName("회원 탈퇴 API가 인증 없이 요청 시 401을 반환한다")
     void withdraw_returns_401_without_authentication() {
         var ex = catchThrowableOfType(
