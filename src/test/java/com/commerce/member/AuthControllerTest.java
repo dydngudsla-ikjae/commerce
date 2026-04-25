@@ -489,6 +489,46 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급 API가 재발급 후 기존 Refresh Token을 삭제한다")
+    void refresh_deletes_old_refresh_token_after_reissue() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String oldRefreshToken = loginResponse.getBody().refreshToken();
+
+        // 재발급 요청
+        var refreshBody = Map.of("refreshToken", oldRefreshToken);
+        client.post()
+                .uri("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(refreshBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 기존 Refresh Token으로 다시 재발급 시도 → 삭제되었으므로 실패
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(refreshBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_INVALID");
+    }
+
+    @Test
     @DisplayName("토큰 재발급 API가 유효한 Refresh Token으로 새 Access Token과 Refresh Token을 발급한다")
     void refresh_issues_new_tokens_with_valid_refresh_token() {
         // 회원가입 후 로그인하여 Refresh Token 획득
