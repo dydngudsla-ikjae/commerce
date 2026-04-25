@@ -1,4 +1,4 @@
-package com.commerce.member.presentation;
+package com.commerce.member.dto; 
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

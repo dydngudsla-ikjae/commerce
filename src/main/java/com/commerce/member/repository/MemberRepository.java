@@ -1,4 +1,4 @@
-package com.commerce.member.infrastructure;
+package com.commerce.member.repository;
 
 import com.commerce.member.domain.Member;
 import com.commerce.member.domain.MemberStatus;

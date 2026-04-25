@@ -1,11 +1,11 @@
-package com.commerce.member.application;
+package com.commerce.member.service;
 
 import com.commerce.global.exception.BusinessException;
 import com.commerce.global.exception.ErrorCode;
 import com.commerce.member.domain.Member;
 import com.commerce.member.domain.MemberStatus;
-import com.commerce.member.infrastructure.MemberRepository;
-import com.commerce.member.infrastructure.RefreshTokenRepository;
+import com.commerce.member.repository.MemberRepository;
+import com.commerce.member.repository.RefreshTokenRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

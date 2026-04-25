@@ -1,4 +1,4 @@
-package com.commerce.member.presentation;
+package com.commerce.member.dto; 
 
 import java.time.LocalDateTime;
 

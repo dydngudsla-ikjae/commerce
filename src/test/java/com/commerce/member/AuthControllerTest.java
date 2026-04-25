@@ -3,9 +3,9 @@ package com.commerce.member;
 import com.commerce.global.jwt.JwtProvider;
 import com.commerce.member.domain.MemberRole;
 import com.commerce.member.domain.MemberStatus;
-import com.commerce.member.infrastructure.MemberRepository;
-import com.commerce.member.infrastructure.RefreshTokenRepository;
-import com.commerce.member.presentation.SignupResponse;
+import com.commerce.member.repository.MemberRepository;
+import com.commerce.member.repository.RefreshTokenRepository;
+import com.commerce.member.dto.SignupResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -236,7 +236,7 @@ class AuthControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("email", "user@example.com", "password", "Password1!"))
                 .retrieve()
-                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+                .toEntity(com.commerce.member.dto.LoginResponse.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
@@ -436,7 +436,7 @@ class AuthControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("refreshToken", refreshToken))
                 .retrieve()
-                .toEntity(com.commerce.member.presentation.RefreshResponse.class);
+                .toEntity(com.commerce.member.dto.RefreshResponse.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().accessToken()).isNotBlank();
@@ -706,7 +706,7 @@ class AuthControllerTest {
                 .uri("/api/v1/members/me")
                 .header("Authorization", "Bearer " + accessToken)
                 .retrieve()
-                .toEntity(com.commerce.member.presentation.MemberController.MemberInfo.class);
+                .toEntity(com.commerce.member.controller.MemberController.MemberInfo.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().role()).isEqualTo("CUSTOMER");
@@ -849,7 +849,7 @@ class AuthControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("refreshToken", refreshToken))
                 .retrieve()
-                .toEntity(com.commerce.member.presentation.RefreshResponse.class);
+                .toEntity(com.commerce.member.dto.RefreshResponse.class);
 
         String newAccessToken = refreshResponse.getBody().accessToken();
 
@@ -857,7 +857,7 @@ class AuthControllerTest {
                 .uri("/api/v1/members/me")
                 .header("Authorization", "Bearer " + newAccessToken)
                 .retrieve()
-                .toEntity(com.commerce.member.presentation.MemberController.MemberInfo.class);
+                .toEntity(com.commerce.member.controller.MemberController.MemberInfo.class);
 
         assertThat(meResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
@@ -873,13 +873,13 @@ class AuthControllerTest {
                 .toBodilessEntity();
     }
 
-    private org.springframework.http.ResponseEntity<com.commerce.member.presentation.LoginResponse> login(String email) {
+    private org.springframework.http.ResponseEntity<com.commerce.member.dto.LoginResponse> login(String email) {
         return client.post()
                 .uri("/api/v1/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("email", email, "password", "Password1!"))
                 .retrieve()
-                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+                .toEntity(com.commerce.member.dto.LoginResponse.class);
     }
 
     private void failLogin(String email, int times) {

@@ -1,7 +1,13 @@
-package com.commerce.member.presentation;
+package com.commerce.member.controller; 
 
 import com.commerce.global.jwt.AuthMember;
-import com.commerce.member.application.AuthService;
+import com.commerce.member.dto.LoginRequest;
+import com.commerce.member.dto.LoginResponse;
+import com.commerce.member.dto.RefreshRequest;
+import com.commerce.member.dto.RefreshResponse;
+import com.commerce.member.dto.SignupRequest;
+import com.commerce.member.dto.SignupResponse;
+import com.commerce.member.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

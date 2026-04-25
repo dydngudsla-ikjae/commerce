@@ -1,18 +1,18 @@
-package com.commerce.member.application;
+package com.commerce.member.service;
 
 import com.commerce.global.exception.BusinessException;
 import com.commerce.global.exception.ErrorCode;
 import com.commerce.global.jwt.JwtProvider;
 import com.commerce.member.domain.Member;
 import com.commerce.member.domain.RefreshToken;
-import com.commerce.member.infrastructure.MemberRepository;
-import com.commerce.member.infrastructure.RefreshTokenRepository;
-import com.commerce.member.presentation.LoginRequest;
-import com.commerce.member.presentation.LoginResponse;
-import com.commerce.member.presentation.RefreshRequest;
-import com.commerce.member.presentation.RefreshResponse;
-import com.commerce.member.presentation.SignupRequest;
-import com.commerce.member.presentation.SignupResponse;
+import com.commerce.member.repository.MemberRepository;
+import com.commerce.member.repository.RefreshTokenRepository;
+import com.commerce.member.dto.LoginRequest;
+import com.commerce.member.dto.LoginResponse;
+import com.commerce.member.dto.RefreshRequest;
+import com.commerce.member.dto.RefreshResponse;
+import com.commerce.member.dto.SignupRequest;
+import com.commerce.member.dto.SignupResponse;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;

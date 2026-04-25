@@ -1,4 +1,4 @@
-package com.commerce.member.presentation;
+package com.commerce.member.dto; 
 
 import com.commerce.member.domain.MemberRole;
 import com.commerce.member.domain.MemberStatus;

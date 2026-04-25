@@ -1,7 +1,7 @@
-package com.commerce.member.presentation;
+package com.commerce.member.controller; 
 
 import com.commerce.global.jwt.AuthMember;
-import com.commerce.member.application.MemberService;
+import com.commerce.member.service.MemberService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
