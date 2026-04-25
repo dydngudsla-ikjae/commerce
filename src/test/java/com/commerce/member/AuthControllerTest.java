@@ -489,6 +489,35 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("인증 필터가 Refresh Token을 Access Token으로 사용하면 인증 컨텍스트를 비운다")
+    void authFilter_clears_context_when_refresh_token_used_as_access_token() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        // Refresh Token을 Authorization 헤더에 사용
+        String refreshToken = loginResponse.getBody().refreshToken();
+
+        var ex = catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/members/me")
+                        .header("Authorization", "Bearer " + refreshToken)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("인증 필터가 서명이 잘못된 Access Token으로 인증 컨텍스트를 비운다")
     void authFilter_clears_context_with_wrong_signature_access_token() {
         // 다른 시크릿 키로 서명된 Access Token 생성
