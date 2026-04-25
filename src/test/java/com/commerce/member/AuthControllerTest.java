@@ -13,6 +13,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
@@ -33,6 +34,9 @@ class AuthControllerTest {
 
     @Autowired
     private MemberRepository memberRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     void setUp() {
@@ -424,6 +428,41 @@ class AuthControllerTest {
                 "password", "WrongPass1!"
         );
 
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(loginBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
+    }
+
+    @Test
+    @DisplayName("로그인 API가 INACTIVE 회원에 401 AUTH_INVALID를 반환한다")
+    void login_returns_401_for_inactive_member() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 회원 상태를 INACTIVE로 변경 (테스트 픽스처 설정)
+        var member = memberRepository.findByEmail("user@example.com").orElseThrow();
+        transactionTemplate.executeWithoutResult(status ->
+                memberRepository.updateStatus(member.getId(), MemberStatus.INACTIVE));
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
         var ex = catchThrowableOfType(
                 () -> client.post()
                         .uri("/api/v1/auth/login")
