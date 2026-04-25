@@ -1,6 +1,5 @@
 package com.commerce.member.application;
 
-import com.commerce.member.domain.Member;
 import com.commerce.member.infrastructure.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,9 +17,9 @@ public class LastLoginUpdateService {
     private final MemberRepository memberRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void updateLastLoginAt(Long memberId) {
+    public void updateLastLoginAt(Long memberId, LocalDateTime loginAt) {
         memberRepository.findById(memberId).ifPresent(member -> {
-            member.updateLastLoginAt(LocalDateTime.now());
+            member.updateLastLoginAt(loginAt);
         });
     }
 }

@@ -72,10 +72,11 @@ public class AuthService {
         refreshTokenRepository.deleteByMemberId(member.getId());
         refreshTokenRepository.save(RefreshToken.create(member.getId(), refreshTokenStr, expiresAt));
 
+        LocalDateTime loginTime = LocalDateTime.now();
         LocalDateTime lastLoginAt = null;
         try {
-            lastLoginUpdateService.updateLastLoginAt(member.getId());
-            lastLoginAt = LocalDateTime.now();
+            lastLoginUpdateService.updateLastLoginAt(member.getId(), loginTime);
+            lastLoginAt = loginTime;
         } catch (Exception e) {
             // last_login_at 업데이트 실패해도 로그인은 성공 처리
         }

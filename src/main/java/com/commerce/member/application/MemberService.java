@@ -24,6 +24,10 @@ public class MemberService {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
 
+        if (member.getStatus() == MemberStatus.DELETED) {
+            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND);
+        }
+
         String deletedEmail = member.getEmail() + "_deleted_" + Instant.now().toEpochMilli();
         member.withdraw(deletedEmail);
 

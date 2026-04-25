@@ -66,19 +66,15 @@ public class Member {
         return this.status == MemberStatus.ACTIVE;
     }
 
+    // @Modifying 쿼리 대신 엔티티 업데이트를 사용하는 이유:
+    // login() 트랜잭션 안에서 @Modifying을 쓰면 member 행에 UPDATE 락이 걸린 채로
+    // REQUIRES_NEW(lastLoginUpdateService)가 같은 행을 UPDATE하려다 데드락이 발생한다.
     public void onLoginSuccess() {
         this.loginFailCount = 0;
     }
 
     public void updateLastLoginAt(LocalDateTime loginAt) {
         this.lastLoginAt = loginAt;
-    }
-
-    public void onLoginFail() {
-        this.loginFailCount++;
-        if (this.loginFailCount >= 5) {
-            this.status = MemberStatus.LOCKED;
-        }
     }
 
     public void withdraw(String deletedEmail) {
