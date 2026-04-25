@@ -443,6 +443,52 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("로그인 API가 5회 연속 실패 시 회원 상태를 LOCKED로 전환한다")
+    void login_locks_member_after_5_consecutive_failures() {
+        var signupBody = Map.of(
+                "email", "user@example.com",
+                "password", "Password1!",
+                "name", "홍길동"
+        );
+        client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        var wrongBody = Map.of("email", "user@example.com", "password", "WrongPass1!");
+
+        // 5회 연속 실패
+        for (int i = 0; i < 5; i++) {
+            catchThrowableOfType(
+                    () -> client.post()
+                            .uri("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(wrongBody)
+                            .retrieve()
+                            .toBodilessEntity(),
+                    HttpClientErrorException.Unauthorized.class
+            );
+        }
+
+        // 올바른 비밀번호로도 로그인 불가 (LOCKED 상태)
+        var correctBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(correctBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
+    }
+
+    @Test
     @DisplayName("로그인 API가 인증 실패 시 login_fail_count를 원자적으로 증가시킨다")
     void login_increments_login_fail_count_atomically() {
         var signupBody = Map.of(
