@@ -20,7 +20,8 @@ public enum ErrorCode {
     VARIANT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 Variant입니다."),
     VARIANT_SOLD_OUT(HttpStatus.BAD_REQUEST, "재고가 부족합니다."),
     DUPLICATE_VARIANT(HttpStatus.CONFLICT, "이미 존재하는 옵션 조합입니다."),
-    OPTION_DUPLICATE(HttpStatus.CONFLICT, "이미 존재하는 옵션명입니다.");
+    OPTION_DUPLICATE(HttpStatus.CONFLICT, "이미 존재하는 옵션명입니다."),
+    OPTION_VALUE_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 옵션값입니다.");
 
     private final HttpStatus status;
     private final String message;

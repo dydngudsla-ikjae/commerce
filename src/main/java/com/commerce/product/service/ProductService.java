@@ -137,7 +137,10 @@ public class ProductService {
 
         List<String> optionValues = List.of();
         if (!requestedValueIds.isEmpty()) {
-            List<ProductOptionValue> optionValueEntities = productOptionValueRepository.findAllById(requestedValueIds);
+            List<ProductOptionValue> optionValueEntities = productOptionValueRepository.findByProductIdAndIdIn(productId, requestedValueIds);
+            if (optionValueEntities.size() != requestedValueIds.size()) {
+                throw new BusinessException(ErrorCode.OPTION_VALUE_NOT_FOUND);
+            }
             for (ProductOptionValue optionValue : optionValueEntities) {
                 ProductVariantOption vo = ProductVariantOption.create(variant, optionValue);
                 productVariantOptionRepository.save(vo);
@@ -227,17 +230,19 @@ public class ProductService {
                 ))
                 .toList();
 
+        Map<Long, List<String>> variantOptionMap = productVariantOptionRepository.findByProductId(product.getId())
+                .stream()
+                .collect(Collectors.groupingBy(
+                        vo -> vo.getVariant().getId(),
+                        Collectors.mapping(vo -> vo.getOptionValue().getValue(), Collectors.toList())
+                ));
+
         List<ProductVariant> variants = productVariantRepository.findByProductId(product.getId());
         List<ProductDetailResponse.VariantDto> variantDtos = variants.stream()
-                .map(v -> {
-                    List<String> voValues = productVariantOptionRepository.findByVariantId(v.getId())
-                            .stream()
-                            .map(vo -> vo.getOptionValue().getValue())
-                            .toList();
-                    return new ProductDetailResponse.VariantDto(
-                            v.getId(), v.getPrice(), v.getStock(), v.getStatus(), voValues
-                    );
-                })
+                .map(v -> new ProductDetailResponse.VariantDto(
+                        v.getId(), v.getPrice(), v.getStock(), v.getStatus(),
+                        variantOptionMap.getOrDefault(v.getId(), List.of())
+                ))
                 .toList();
 
         return new ProductDetailResponse(
