@@ -489,6 +489,46 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급 API가 이미 사용된 Refresh Token 재사용 시 401 TOKEN_INVALID를 반환한다")
+    void refresh_returns_401_when_reusing_already_used_token() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String refreshToken = loginResponse.getBody().refreshToken();
+        var refreshBody = Map.of("refreshToken", refreshToken);
+
+        // 첫 번째 사용 → 성공
+        client.post()
+                .uri("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(refreshBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 동일 토큰 재사용 → 실패
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(refreshBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_INVALID");
+    }
+
+    @Test
     @DisplayName("토큰 재발급 API가 Access Token을 Refresh Token으로 사용하면 거부한다")
     void refresh_rejects_access_token_used_as_refresh_token() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
