@@ -489,6 +489,39 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("회원 탈퇴 API가 name을 탈퇴 사용자로 변경한다")
+    void withdraw_changes_name_to_deleted_user() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+
+        client.delete()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        // name이 "탈퇴 사용자"로 변경되었는지 DB에서 확인
+        // _deleted_ 패턴으로 이메일을 찾아 이름 확인
+        var members = memberRepository.findAll();
+        var withdrawnMember = members.stream()
+                .filter(m -> m.getEmail().contains("_deleted_"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(withdrawnMember.getName()).isEqualTo("탈퇴 사용자");
+    }
+
+    @Test
     @DisplayName("회원 탈퇴 API가 이메일에 _deleted_{timestamp} 접미사를 붙인다")
     void withdraw_appends_deleted_suffix_to_email() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
