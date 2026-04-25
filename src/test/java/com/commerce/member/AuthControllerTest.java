@@ -489,6 +489,25 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급 API가 유효하지 않은 Refresh Token에 401 TOKEN_INVALID를 반환한다")
+    void refresh_returns_401_for_invalid_refresh_token() {
+        var refreshBody = Map.of("refreshToken", "this.is.not.a.valid.jwt.token");
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(refreshBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_INVALID");
+    }
+
+    @Test
     @DisplayName("토큰 재발급 API가 만료된 Refresh Token에 401 TOKEN_EXPIRED를 반환한다")
     void refresh_returns_401_for_expired_refresh_token() {
         // 만료된 Refresh Token 생성 (만료 시간을 과거로 설정)
