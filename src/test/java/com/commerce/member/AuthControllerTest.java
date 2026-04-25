@@ -489,6 +489,46 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("회원 탈퇴 API가 탈퇴 시 Refresh Token을 삭제한다")
+    void withdraw_deletes_refresh_token() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+        String refreshToken = loginResponse.getBody().refreshToken();
+
+        // 탈퇴 요청
+        client.delete()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 탈퇴 후 Refresh Token으로 재발급 시도 → 삭제되었으므로 실패
+        var refreshBody = Map.of("refreshToken", refreshToken);
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(refreshBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_INVALID");
+    }
+
+    @Test
     @DisplayName("회원 탈퇴 API가 name을 탈퇴 사용자로 변경한다")
     void withdraw_changes_name_to_deleted_user() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
