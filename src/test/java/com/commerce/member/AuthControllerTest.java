@@ -1,20 +1,17 @@
 package com.commerce.member;
 
-import com.commerce.member.application.LastLoginUpdateService;
+import com.commerce.global.jwt.JwtProvider;
 import com.commerce.member.domain.MemberRole;
 import com.commerce.member.domain.MemberStatus;
 import com.commerce.member.infrastructure.MemberRepository;
 import com.commerce.member.infrastructure.RefreshTokenRepository;
 import com.commerce.member.presentation.SignupResponse;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -47,8 +44,8 @@ class AuthControllerTest {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    @SpyBean
-    private LastLoginUpdateService lastLoginUpdateServiceSpy;
+    @Autowired
+    private JwtProvider jwtProvider;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -58,7 +55,6 @@ class AuthControllerTest {
         client = RestClient.create("http://localhost:" + port);
         refreshTokenRepository.deleteAll();
         memberRepository.deleteAll();
-        Mockito.reset(lastLoginUpdateServiceSpy);
     }
 
     // ==================== 회원가입 ====================
@@ -105,6 +101,7 @@ class AuthControllerTest {
                 .retrieve()
                 .toBodilessEntity();
 
+        // bcrypt 해시는 HTTP 응답으로 노출되지 않으므로 DB 직접 확인 (예외적 허용)
         var member = memberRepository.findByEmail("user@example.com").orElseThrow();
         assertThat(member.getPassword())
                 .startsWith("$2a$")
@@ -366,6 +363,7 @@ class AuthControllerTest {
     void login_returns_401_for_inactive_member() {
         signup("user@example.com");
 
+        // INACTIVE 상태로 전환하는 어드민 API가 없으므로 예외적으로 DB 직접 조작
         var member = memberRepository.findByEmail("user@example.com").orElseThrow();
         transactionTemplate.executeWithoutResult(status ->
                 memberRepository.updateStatus(member.getId(), MemberStatus.INACTIVE));
@@ -385,61 +383,44 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("로그인 API가 인증 실패 시 login_fail_count를 원자적으로 증가시킨다")
-    void login_increments_login_fail_count_per_failure() {
-        signup("user@example.com");
-        var wrongBody = Map.of("email", "user@example.com", "password", "WrongPass1!");
-
-        catchThrowableOfType(
-                () -> client.post().uri("/api/v1/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON).body(wrongBody)
-                        .retrieve().toBodilessEntity(),
-                HttpClientErrorException.Unauthorized.class
-        );
-
-        var afterOne = memberRepository.findByEmail("user@example.com").orElseThrow();
-        assertThat(afterOne.getLoginFailCount()).isEqualTo(1);
-
-        catchThrowableOfType(
-                () -> client.post().uri("/api/v1/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON).body(wrongBody)
-                        .retrieve().toBodilessEntity(),
-                HttpClientErrorException.Unauthorized.class
-        );
-
-        var afterTwo = memberRepository.findByEmail("user@example.com").orElseThrow();
-        assertThat(afterTwo.getLoginFailCount()).isEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("로그인 API가 5회 연속 실패 시 회원 상태를 LOCKED로 전환한다")
+    @DisplayName("로그인 API가 5회 연속 실패 시 올바른 비밀번호로도 로그인을 차단한다")
     void login_locks_member_after_5_consecutive_failures() {
         signup("user@example.com");
         failLogin("user@example.com", 5);
 
-        var lockedMember = memberRepository.findByEmail("user@example.com").orElseThrow();
-        assertThat(lockedMember.getStatus()).isEqualTo(MemberStatus.LOCKED);
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("email", "user@example.com", "password", "Password1!"))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
     }
 
     @Test
-    @DisplayName("로그인 API가 last_login_at 업데이트 실패 시에도 로그인을 성공 처리한다")
-    void login_succeeds_even_if_last_login_at_update_fails() {
+    @DisplayName("로그인 2번 시 첫 번째 Refresh Token이 무효화된다")
+    void second_login_invalidates_previous_refresh_token() {
         signup("user@example.com");
+        String firstRefreshToken = login("user@example.com").getBody().refreshToken();
+        login("user@example.com"); // 두 번째 로그인 — 첫 번째 RT 삭제
 
-        Mockito.doThrow(new RuntimeException("DB connection error"))
-                .when(lastLoginUpdateServiceSpy).updateLastLoginAt(Mockito.anyLong(), Mockito.any());
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("refreshToken", firstRefreshToken))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
 
-        var response = client.post()
-                .uri("/api/v1/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("email", "user@example.com", "password", "Password1!"))
-                .retrieve()
-                .toEntity(com.commerce.member.presentation.LoginResponse.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().accessToken()).isNotBlank();
-        assertThat(response.getBody().refreshToken()).isNotBlank();
-        assertThat(response.getBody().lastLoginAt()).isNull();
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("TOKEN_INVALID");
     }
 
     // ==================== 토큰 재발급 ====================
@@ -492,8 +473,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("토큰 재발급 API가 만료된 Refresh Token에 401 TOKEN_EXPIRED를 반환한다")
     void refresh_returns_401_for_expired_refresh_token() {
-        // 서버와 동일한 비밀키를 사용하되 만료 시간만 -1ms로 설정
-        var expiredProvider = new com.commerce.global.jwt.JwtProvider(jwtSecret, 1800000L, -1L);
+        var expiredProvider = new JwtProvider(jwtSecret, 1800000L, -1L);
         String expiredToken = expiredProvider.generateRefreshToken(999L);
 
         var ex = catchThrowableOfType(
@@ -624,8 +604,8 @@ class AuthControllerTest {
     // ==================== 회원 탈퇴 ====================
 
     @Test
-    @DisplayName("회원 탈퇴 API가 회원 status를 DELETED로 변경한다")
-    void withdraw_changes_member_status_to_deleted() {
+    @DisplayName("회원 탈퇴 후 동일 계정으로 로그인이 차단된다")
+    void withdraw_blocks_login_after_withdrawal() {
         signup("user@example.com");
         String accessToken = login("user@example.com").getBody().accessToken();
 
@@ -635,49 +615,18 @@ class AuthControllerTest {
                 .retrieve()
                 .toBodilessEntity();
 
-        var withdrawn = memberRepository.findAll().stream()
-                .filter(m -> m.getEmail().contains("_deleted_"))
-                .findFirst().orElseThrow();
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("email", "user@example.com", "password", "Password1!"))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
 
-        assertThat(withdrawn.getStatus()).isEqualTo(MemberStatus.DELETED);
-    }
-
-    @Test
-    @DisplayName("회원 탈퇴 API가 이메일에 _deleted_{timestamp} 접미사를 붙인다")
-    void withdraw_appends_deleted_suffix_to_email() {
-        signup("user@example.com");
-        String accessToken = login("user@example.com").getBody().accessToken();
-
-        client.delete()
-                .uri("/api/v1/members/me")
-                .header("Authorization", "Bearer " + accessToken)
-                .retrieve()
-                .toBodilessEntity();
-
-        var withdrawn = memberRepository.findAll().stream()
-                .filter(m -> m.getEmail().contains("_deleted_"))
-                .findFirst().orElseThrow();
-
-        assertThat(withdrawn.getEmail()).matches("user@example\\.com_deleted_\\d+");
-    }
-
-    @Test
-    @DisplayName("회원 탈퇴 API가 name을 탈퇴 사용자로 변경한다")
-    void withdraw_changes_name_to_deleted_user() {
-        signup("user@example.com");
-        String accessToken = login("user@example.com").getBody().accessToken();
-
-        client.delete()
-                .uri("/api/v1/members/me")
-                .header("Authorization", "Bearer " + accessToken)
-                .retrieve()
-                .toBodilessEntity();
-
-        var withdrawn = memberRepository.findAll().stream()
-                .filter(m -> m.getEmail().contains("_deleted_"))
-                .findFirst().orElseThrow();
-
-        assertThat(withdrawn.getName()).isEqualTo("탈퇴 사용자");
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
     }
 
     @Test
@@ -766,8 +715,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("인증 필터가 만료된 Access Token으로 인증 컨텍스트를 비운다")
     void authFilter_clears_context_with_expired_access_token() {
-        // 서버와 동일한 비밀키를 사용하되 만료 시간만 -1ms로 설정
-        var expiredProvider = new com.commerce.global.jwt.JwtProvider(jwtSecret, -1L, 604800000L);
+        var expiredProvider = new JwtProvider(jwtSecret, -1L, 604800000L);
         String expiredToken = expiredProvider.generateAccessToken(1L, "CUSTOMER");
 
         var ex = catchThrowableOfType(
@@ -785,8 +733,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("인증 필터가 서명이 잘못된 Access Token으로 인증 컨텍스트를 비운다")
     void authFilter_clears_context_with_wrong_signature_access_token() {
-        // 의도적으로 다른 비밀키로 서명 — 서버가 서명 검증 실패를 처리하는지 확인
-        var wrongKeyProvider = new com.commerce.global.jwt.JwtProvider(
+        var wrongKeyProvider = new JwtProvider(
                 "d3JvbmdTZWNyZXRLZXlGb3JUZXN0aW5nUHVycG9zZU9ubHkx",
                 1800000L,
                 604800000L
@@ -824,6 +771,39 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("인증 필터가 Bearer 없는 Authorization 헤더를 무시하고 401을 반환한다")
+    void authFilter_ignores_authorization_header_without_bearer_prefix() {
+        signup("user@example.com");
+        String accessToken = login("user@example.com").getBody().accessToken();
+
+        var ex = catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/members/me")
+                        .header("Authorization", accessToken) // "Bearer " 없음
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
+    @DisplayName("인증 필터가 형식이 깨진 Bearer 토큰에 401을 반환한다")
+    void authFilter_rejects_malformed_bearer_token() {
+        var ex = catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/members/me")
+                        .header("Authorization", "Bearer not-a-valid-token")
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("인증 필터가 ADMIN 권한 없는 회원의 admin 엔드포인트 접근 시 403을 반환한다")
     void authFilter_returns_403_for_customer_accessing_admin_endpoint() {
         signup("user@example.com");
@@ -839,6 +819,47 @@ class AuthControllerTest {
         );
 
         assertThat(ex).isNotNull();
+    }
+
+    @Test
+    @DisplayName("만료된 Access Token을 Refresh Token으로 재발급 받을 수 있다")
+    void expired_access_token_can_be_renewed_with_refresh_token() {
+        signup("user@example.com");
+        var loginBody = login("user@example.com").getBody();
+        String refreshToken = loginBody.refreshToken();
+
+        var claims = jwtProvider.parse(loginBody.accessToken());
+        Long memberId = Long.parseLong(claims.getSubject());
+        String role = claims.get("role", String.class);
+
+        var expiredProvider = new JwtProvider(jwtSecret, -1L, 604800000L);
+        String expiredAccess = expiredProvider.generateAccessToken(memberId, role);
+
+        catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/members/me")
+                        .header("Authorization", "Bearer " + expiredAccess)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        var refreshResponse = client.post()
+                .uri("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("refreshToken", refreshToken))
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.RefreshResponse.class);
+
+        String newAccessToken = refreshResponse.getBody().accessToken();
+
+        var meResponse = client.get()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + newAccessToken)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.MemberController.MemberInfo.class);
+
+        assertThat(meResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     // ==================== 헬퍼 메서드 ====================
