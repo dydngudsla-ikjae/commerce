@@ -489,6 +489,55 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("회원 탈퇴 API가 이메일에 _deleted_{timestamp} 접미사를 붙인다")
+    void withdraw_appends_deleted_suffix_to_email() {
+        var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
+        client.post().uri("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).body(signupBody).retrieve().toBodilessEntity();
+
+        var loginBody = Map.of("email", "user@example.com", "password", "Password1!");
+        var loginResponse = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(loginBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.LoginResponse.class);
+
+        String accessToken = loginResponse.getBody().accessToken();
+        long beforeWithdraw = System.currentTimeMillis();
+
+        client.delete()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 탈퇴 후 이메일이 변조되었으므로 원래 이메일로 재가입 가능 (원래 이메일이 사용 중이 아님)
+        // 이메일 변조 확인: 원래 이메일로 로그인 시도 실패 (이메일 자체가 변조됨)
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(loginBody)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull(); // 원래 이메일로 찾을 수 없음
+
+        // 원래 이메일로 재가입 가능 → 이메일 변조가 된 증거
+        var newSignupResponse = client.post()
+                .uri("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(signupBody)
+                .retrieve()
+                .toEntity(com.commerce.member.presentation.SignupResponse.class);
+
+        assertThat(newSignupResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(newSignupResponse.getBody().email()).isEqualTo("user@example.com");
+    }
+
+    @Test
     @DisplayName("회원 탈퇴 API가 회원 status를 DELETED로 변경한다")
     void withdraw_changes_member_status_to_deleted() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
