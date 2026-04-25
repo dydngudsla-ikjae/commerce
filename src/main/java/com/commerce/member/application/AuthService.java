@@ -27,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final LoginFailService loginFailService;
+    private final LastLoginUpdateService lastLoginUpdateService;
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
@@ -66,6 +67,14 @@ public class AuthService {
         refreshTokenRepository.deleteByMemberId(member.getId());
         refreshTokenRepository.save(RefreshToken.create(member.getId(), refreshTokenStr, expiresAt));
 
-        return new LoginResponse(accessToken, refreshTokenStr, member.getLastLoginAt());
+        LocalDateTime lastLoginAt = null;
+        try {
+            lastLoginUpdateService.updateLastLoginAt(member.getId());
+            lastLoginAt = LocalDateTime.now();
+        } catch (Exception e) {
+            // last_login_at 업데이트 실패해도 로그인은 성공 처리
+        }
+
+        return new LoginResponse(accessToken, refreshTokenStr, lastLoginAt);
     }
 }

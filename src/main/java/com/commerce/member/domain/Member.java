@@ -68,7 +68,10 @@ public class Member {
 
     public void onLoginSuccess() {
         this.loginFailCount = 0;
-        this.lastLoginAt = LocalDateTime.now();
+    }
+
+    public void updateLastLoginAt(LocalDateTime loginAt) {
+        this.lastLoginAt = loginAt;
     }
 
     public void onLoginFail() {
