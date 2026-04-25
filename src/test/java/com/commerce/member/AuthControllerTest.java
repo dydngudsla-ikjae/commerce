@@ -489,6 +489,20 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("회원 탈퇴 API가 인증 없이 요청 시 401을 반환한다")
+    void withdraw_returns_401_without_authentication() {
+        var ex = catchThrowableOfType(
+                () -> client.delete()
+                        .uri("/api/v1/members/me")
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("회원 탈퇴 API가 탈퇴 후 동일 이메일로 재가입을 허용한다")
     void withdraw_allows_re_signup_with_same_email() {
         var signupBody = Map.of("email", "user@example.com", "password", "Password1!", "name", "홍길동");
