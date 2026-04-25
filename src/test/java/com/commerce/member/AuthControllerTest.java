@@ -489,6 +489,30 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("인증 필터가 서명이 잘못된 Access Token으로 인증 컨텍스트를 비운다")
+    void authFilter_clears_context_with_wrong_signature_access_token() {
+        // 다른 시크릿 키로 서명된 Access Token 생성
+        com.commerce.global.jwt.JwtProvider wrongKeyProvider = new com.commerce.global.jwt.JwtProvider(
+                "d3JvbmdTZWNyZXRLZXlGb3JUZXN0aW5nUHVycG9zZU9ubHkx",  // 다른 키
+                1800000L,
+                604800000L
+        );
+        String wrongSignatureToken = wrongKeyProvider.generateAccessToken(1L, "CUSTOMER");
+
+        // 잘못된 서명의 Access Token으로 인증 필요 엔드포인트 호출 → 401
+        var ex = catchThrowableOfType(
+                () -> client.get()
+                        .uri("/api/v1/members/me")
+                        .header("Authorization", "Bearer " + wrongSignatureToken)
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+    }
+
+    @Test
     @DisplayName("인증 필터가 만료된 Access Token으로 인증 컨텍스트를 비운다")
     void authFilter_clears_context_with_expired_access_token() {
         // 만료된 Access Token 생성
