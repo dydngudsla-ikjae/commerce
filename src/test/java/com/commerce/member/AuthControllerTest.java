@@ -862,6 +862,110 @@ class AuthControllerTest {
         assertThat(meResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
+    // ==================== 추가 로그인 테스트 ====================
+
+    @Test
+    @DisplayName("로그인 API가 대소문자 혼합 이메일로도 소문자 변환 후 로그인에 성공한다")
+    void login_succeeds_with_mixed_case_email() {
+        signup("user@example.com");
+
+        var response = client.post()
+                .uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("email", "User@Example.COM", "password", "Password1!"))
+                .retrieve()
+                .toEntity(com.commerce.member.dto.LoginResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("로그인 API가 4회 실패 후 성공 시 login_fail_count를 0으로 초기화한다")
+    void login_resets_fail_count_after_4_failures() {
+        signup("user@example.com");
+
+        // 4회 실패
+        failLogin("user@example.com", 4);
+
+        // 1회 성공 (4회 실패이므로 아직 LOCKED 아님)
+        login("user@example.com");
+
+        // 다시 4회 실패 (초기화됐으므로 LOCKED 아님)
+        failLogin("user@example.com", 4);
+
+        // 다시 성공 (여전히 LOCKED 아님 = 초기화 증명)
+        var response = login("user@example.com");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("로그인 API가 DELETED 회원 로그인 시 401 AUTH_INVALID를 반환한다")
+    void login_returns_401_for_deleted_member() {
+        signup("user@example.com");
+
+        var member = memberRepository.findByEmail("user@example.com").orElseThrow();
+        transactionTemplate.executeWithoutResult(status ->
+                memberRepository.updateStatus(member.getId(), MemberStatus.DELETED));
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("email", "user@example.com", "password", "Password1!"))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.Unauthorized.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("AUTH_INVALID");
+    }
+
+    @Test
+    @DisplayName("로그아웃 API가 Refresh Token이 이미 없는 상태에서도 성공(멱등)으로 처리한다")
+    void logout_is_idempotent_without_refresh_token() {
+        signup("user@example.com");
+        var loginBody = login("user@example.com").getBody();
+        String accessToken = loginBody.accessToken();
+
+        // 첫 번째 로그아웃 (RT 삭제됨)
+        client.post()
+                .uri("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 두 번째 로그아웃 (RT 이미 없음, 멱등 처리)
+        var response = client.post()
+                .uri("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @Test
+    @DisplayName("회원 탈퇴 API가 탈퇴 후 재가입한 이메일로 로그인에 성공한다")
+    void withdraw_allows_login_after_re_signup() {
+        signup("user@example.com");
+        String accessToken = login("user@example.com").getBody().accessToken();
+
+        // 탈퇴
+        client.delete()
+                .uri("/api/v1/members/me")
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .toBodilessEntity();
+
+        // 재가입
+        signup("user@example.com");
+
+        // 재가입 후 로그인 성공
+        var response = login("user@example.com");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     // ==================== 헬퍼 메서드 ====================
 
     private void signup(String email) {
