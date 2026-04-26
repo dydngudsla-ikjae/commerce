@@ -117,6 +117,10 @@ public class AuthService {
         RefreshToken storedToken = refreshTokenRepository.findByToken(tokenValue)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
 
+        if (storedToken.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.TOKEN_EXPIRED);
+        }
+
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
 

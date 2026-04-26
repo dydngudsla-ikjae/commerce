@@ -13,7 +13,7 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
     boolean existsByEmail(String email);
     Optional<Member> findByEmail(String email);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE Member m SET m.loginFailCount = m.loginFailCount + 1 WHERE m.id = :id")
     void incrementLoginFailCount(@Param("id") Long id);
 

@@ -57,7 +57,7 @@ public class ProductService {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.isDeleted() || product.getStatus() == ProductStatus.STOPPED) {
+        if (!product.isVisible()) {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
 
@@ -222,7 +222,7 @@ public class ProductService {
     }
 
     private ProductDetailResponse buildProductDetail(Product product) {
-        List<ProductOption> options = productOptionRepository.findByProductId(product.getId());
+        List<ProductOption> options = productOptionRepository.findByProductIdWithValues(product.getId());
         List<ProductDetailResponse.OptionDto> optionDtos = options.stream()
                 .map(opt -> new ProductDetailResponse.OptionDto(
                         opt.getName(),
