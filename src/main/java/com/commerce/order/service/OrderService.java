@@ -4,7 +4,6 @@ import com.commerce.global.exception.BusinessException;
 import com.commerce.global.exception.ErrorCode;
 import com.commerce.order.domain.Order;
 import com.commerce.order.domain.OrderItem;
-import com.commerce.order.domain.OrderStatus;
 import com.commerce.order.dto.CreateOrderRequest;
 import com.commerce.order.dto.OrderDetailResponse;
 import com.commerce.order.dto.OrderResponse;
@@ -86,10 +85,6 @@ public class OrderService {
             throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
         }
 
-        if (order.getStatus() != OrderStatus.PENDING) {
-            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
-        }
-
         order.pay();
         return OrderResponse.from(order);
     }
@@ -101,10 +96,6 @@ public class OrderService {
 
         if (!order.getMemberId().equals(memberId)) {
             throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
-        }
-
-        if (order.getStatus() != OrderStatus.PENDING) {
-            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
 
         // 재고 복구 먼저 (JPQL flush/clear 전에 items 로딩)
@@ -137,7 +128,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderDetailResponse getOrderDetail(Long memberId, Long orderId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
         if (!order.getMemberId().equals(memberId)) {

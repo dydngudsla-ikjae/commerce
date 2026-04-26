@@ -6,6 +6,7 @@ import com.commerce.order.dto.OrderDetailResponse;
 import com.commerce.order.dto.OrderResponse;
 import com.commerce.order.service.OrderService;
 import com.commerce.product.dto.PageResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +23,7 @@ public class OrderController {
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(
             @AuthenticationPrincipal AuthMember authMember,
-            @RequestBody CreateOrderRequest request) {
+            @Valid @RequestBody CreateOrderRequest request) {
         OrderResponse response = orderService.createOrder(authMember.id(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

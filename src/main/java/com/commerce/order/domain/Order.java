@@ -1,5 +1,7 @@
 package com.commerce.order.domain;
 
+import com.commerce.global.exception.BusinessException;
+import com.commerce.global.exception.ErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -53,10 +55,16 @@ public class Order {
     }
 
     public void pay() {
+        if (this.status != OrderStatus.PENDING) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
         this.status = OrderStatus.PAID;
     }
 
     public void cancel() {
+        if (this.status != OrderStatus.PENDING) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
         this.status = OrderStatus.CANCELLED;
     }
 }
