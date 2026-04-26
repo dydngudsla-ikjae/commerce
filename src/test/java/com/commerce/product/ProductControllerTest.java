@@ -639,6 +639,32 @@ class ProductControllerTest {
         ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
+    @Test
+    @DisplayName("상품 수정 API가 STOPPED 상품을 정상적으로 수정한다")
+    void update_stopped_product_succeeds() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+
+        client.put()
+                .uri("/api/v1/admin/products/" + productId)
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("name", "티셔츠", "status", "STOPPED", "categoryId", categoryId))
+                .retrieve()
+                .toBodilessEntity();
+
+        var response = client.put()
+                .uri("/api/v1/admin/products/" + productId)
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("name", "후드티", "status", "STOPPED", "categoryId", categoryId))
+                .retrieve()
+                .toEntity(ProductResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().name()).isEqualTo("후드티");
+    }
+
     // ==================== 상품 삭제 ====================
 
     @Test
@@ -839,6 +865,24 @@ class ProductControllerTest {
 
         assertThat(response.getBody().status()).isEqualTo(VariantStatus.SOLD_OUT);
         assertThat(response.getBody().stock()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Variant 생성 API가 재고가 있는 Variant를 ON_SALE 상태로 생성한다")
+    void variant_created_with_positive_stock_is_on_sale() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+
+        var response = client.post()
+                .uri("/api/v1/admin/products/" + productId + "/variants")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("price", 10000L, "stock", 5))
+                .retrieve()
+                .toEntity(VariantResponse.class);
+
+        assertThat(response.getBody().status()).isEqualTo(VariantStatus.ON_SALE);
+        assertThat(response.getBody().stock()).isEqualTo(5);
     }
 
     @Test
@@ -1075,52 +1119,51 @@ class ProductControllerTest {
 
     // ==================== 재고 동시성 ====================
 
-    // ==================== 추가 시나리오 ====================
-
     @Test
-    @DisplayName("상품 수정 API가 STOPPED 상품을 정상적으로 수정한다")
-    void update_stopped_product_succeeds() {
+    @DisplayName("동시 재고 차감 요청에서 정확한 수량만 차감된다")
+    void concurrentStockDecreaseIsAccurate() throws InterruptedException {
         Long categoryId = createCategory("의류");
         Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10, null);
 
-        // STOPPED 상태로 변경
-        client.put()
-                .uri("/api/v1/admin/products/" + productId)
-                .header("Authorization", "Bearer " + createAdminToken())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("name", "티셔츠", "status", "STOPPED", "categoryId", categoryId))
+        int threadCount = 15;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger(0);
+
+        String adminToken = createAdminToken();
+        RestClient concurrentClient = RestClient.create("http://localhost:" + port);
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    concurrentClient.put()
+                            .uri("/api/v1/admin/variants/" + variantId + "/stock/decrease")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(Map.of("quantity", 1))
+                            .retrieve()
+                            .toBodilessEntity();
+                    successCount.incrementAndGet();
+                } catch (Exception e) {
+                    // 재고 부족 시 실패 (정상)
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        var detail = client.get()
+                .uri("/api/v1/products/" + productId)
                 .retrieve()
-                .toBodilessEntity();
+                .toEntity(ProductDetailResponse.class).getBody();
 
-        // STOPPED 상태에서 이름 변경
-        var response = client.put()
-                .uri("/api/v1/admin/products/" + productId)
-                .header("Authorization", "Bearer " + createAdminToken())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("name", "후드티", "status", "STOPPED", "categoryId", categoryId))
-                .retrieve()
-                .toEntity(com.commerce.product.dto.ProductResponse.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().name()).isEqualTo("후드티");
-    }
-
-    @Test
-    @DisplayName("Variant 생성 API가 재고가 있는 Variant를 ON_SALE 상태로 생성한다")
-    void variant_created_with_positive_stock_is_on_sale() {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-
-        var response = client.post()
-                .uri("/api/v1/admin/products/" + productId + "/variants")
-                .header("Authorization", "Bearer " + createAdminToken())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("price", 10000L, "stock", 5))
-                .retrieve()
-                .toEntity(com.commerce.product.dto.VariantResponse.class);
-
-        assertThat(response.getBody().status()).isEqualTo(VariantStatus.ON_SALE);
-        assertThat(response.getBody().stock()).isEqualTo(5);
+        int remainingStock = detail.variants().get(0).stock();
+        assertThat(remainingStock).isEqualTo(0);
+        assertThat(successCount.get()).isEqualTo(10);
     }
 
     @Test
@@ -1204,51 +1247,4 @@ class ProductControllerTest {
         assertThat(finalStock).isEqualTo(0);
     }
 
-    @Test
-    @DisplayName("동시 재고 차감 요청에서 정확한 수량만 차감된다")
-    void concurrentStockDecreaseIsAccurate() throws InterruptedException {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-        Long variantId = createVariant(productId, 10000L, 10, null);
-
-        int threadCount = 15;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
-        AtomicInteger successCount = new AtomicInteger(0);
-
-        String adminToken = createAdminToken();
-        RestClient concurrentClient = RestClient.create("http://localhost:" + port);
-
-        for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
-                try {
-                    concurrentClient.put()
-                            .uri("/api/v1/admin/variants/" + variantId + "/stock/decrease")
-                            .header("Authorization", "Bearer " + adminToken)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .body(Map.of("quantity", 1))
-                            .retrieve()
-                            .toBodilessEntity();
-                    successCount.incrementAndGet();
-                } catch (Exception e) {
-                    // 재고 부족 시 실패 (정상)
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        latch.await(10, TimeUnit.SECONDS);
-        executor.shutdown();
-
-        // 재고 조회
-        var detail = client.get()
-                .uri("/api/v1/products/" + productId)
-                .retrieve()
-                .toEntity(ProductDetailResponse.class).getBody();
-
-        int remainingStock = detail.variants().get(0).stock();
-        assertThat(remainingStock).isEqualTo(0);
-        assertThat(successCount.get()).isEqualTo(10);
-    }
 }

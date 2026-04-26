@@ -466,6 +466,78 @@ class OrderControllerTest {
         ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
     }
 
+    @Test
+    @DisplayName("주문 생성 API가 quantity 0 요청을 거부한다")
+    void order_creation_rejects_quantity_zero() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+
+        var body = Map.of("items", List.of(
+                Map.of("variantId", variantId, "quantity", 0)
+        ));
+
+        assertThatThrownBy(() ->
+                client.post()
+                        .uri("/api/v1/orders")
+                        .header("Authorization", "Bearer " + customerToken(1L))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body)
+                        .retrieve()
+                        .toBodilessEntity()
+        ).isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
+
+    @Test
+    @DisplayName("주문 생성 API가 동일 Variant를 중복 포함한 주문을 각각 독립 차감으로 처리한다")
+    void order_creation_with_duplicate_variant_processes_independently() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+
+        var body = Map.of("items", List.of(
+                Map.of("variantId", variantId, "quantity", 3),
+                Map.of("variantId", variantId, "quantity", 3)
+        ));
+
+        var response = client.post()
+                .uri("/api/v1/orders")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toEntity(OrderResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("주문 생성 API가 상품 가격 변경 후에도 OrderItem의 price를 주문 시점 값으로 유지한다")
+    void order_item_price_snapshot_immutable_after_price_change() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        client.put()
+                .uri("/api/v1/admin/variants/" + variantId)
+                .header("Authorization", "Bearer " + adminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("price", 99999L, "status", "ON_SALE"))
+                .retrieve()
+                .toBodilessEntity();
+
+        var detailResponse = client.get()
+                .uri("/api/v1/orders/" + orderId)
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toEntity(OrderDetailResponse.class);
+
+        assertThat(detailResponse.getBody().items().get(0).price()).isEqualTo(10000L);
+    }
+
     // ==================== 결제 API ====================
 
     @Test
@@ -644,6 +716,25 @@ class OrderControllerTest {
     }
 
     @Test
+    @DisplayName("취소 API가 재고 복구 시 SOLD_OUT 상태의 Variant를 ON_SALE로 전환한다")
+    void cancel_restores_stock_and_transitions_sold_out_to_on_sale() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 1);
+
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/cancel")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        VariantStatus finalStatus = productVariantRepository.findById(variantId).get().getStatus();
+        assertThat(finalStatus).isEqualTo(VariantStatus.ON_SALE);
+    }
+
+    @Test
     @DisplayName("취소 API가 PAID 주문 취소 요청을 거부한다 (400, ORDER_INVALID_STATUS)")
     void cancelPaidOrderReturns400() {
         Long categoryId = createCategory("의류");
@@ -773,6 +864,35 @@ class OrderControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().content()).hasSize(2);
         assertThat(response.getBody().content()).allMatch(o -> o.memberId().equals(1L));
+    }
+
+    @Test
+    @DisplayName("주문 목록 조회 API가 다른 사용자의 주문을 결과에 포함하지 않는다")
+    void order_list_excludes_other_users_orders() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+
+        createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+        createOrder(2L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        var responseA = client.get()
+                .uri("/api/v1/orders")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<OrderResponse>>() {});
+
+        assertThat(responseA.getBody().totalElements()).isEqualTo(1);
+        assertThat(responseA.getBody().content()).allMatch(o -> o.memberId().equals(1L));
+
+        var responseB = client.get()
+                .uri("/api/v1/orders")
+                .header("Authorization", "Bearer " + customerToken(2L))
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<OrderResponse>>() {});
+
+        assertThat(responseB.getBody().totalElements()).isEqualTo(1);
+        assertThat(responseB.getBody().content()).allMatch(o -> o.memberId().equals(2L));
     }
 
     @Test
@@ -906,136 +1026,4 @@ class OrderControllerTest {
         ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
     }
 
-    // ==================== 추가 시나리오 ====================
-
-    @Test
-    @DisplayName("주문 생성 API가 quantity 0 요청을 거부한다")
-    void order_creation_rejects_quantity_zero() {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-        Long variantId = createVariant(productId, 10000L, 10);
-
-        var body = Map.of("items", List.of(
-                Map.of("variantId", variantId, "quantity", 0)
-        ));
-
-        assertThatThrownBy(() ->
-                client.post()
-                        .uri("/api/v1/orders")
-                        .header("Authorization", "Bearer " + customerToken(1L))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(body)
-                        .retrieve()
-                        .toBodilessEntity()
-        ).isInstanceOf(HttpClientErrorException.BadRequest.class);
-    }
-
-    @Test
-    @DisplayName("주문 생성 API가 동일 Variant를 중복 포함한 주문을 각각 독립 차감으로 처리한다")
-    void order_creation_with_duplicate_variant_processes_independently() {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-        Long variantId = createVariant(productId, 10000L, 10);
-
-        // 동일 variantId를 두 번 포함한 주문 (각 quantity=3) → 총 6 차감
-        var body = Map.of("items", List.of(
-                Map.of("variantId", variantId, "quantity", 3),
-                Map.of("variantId", variantId, "quantity", 3)
-        ));
-
-        var response = client.post()
-                .uri("/api/v1/orders")
-                .header("Authorization", "Bearer " + customerToken(1L))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .retrieve()
-                .toEntity(OrderResponse.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-
-        int finalStock = productVariantRepository.findById(variantId).get().getStock();
-        assertThat(finalStock).isEqualTo(4);
-    }
-
-    @Test
-    @DisplayName("주문 생성 API가 상품 가격 변경 후에도 OrderItem의 price를 주문 시점 값으로 유지한다")
-    void order_item_price_snapshot_immutable_after_price_change() {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-        Long variantId = createVariant(productId, 10000L, 10);
-
-        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
-
-        // 가격 변경
-        client.put()
-                .uri("/api/v1/admin/variants/" + variantId)
-                .header("Authorization", "Bearer " + adminToken())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("price", 99999L, "status", "ON_SALE"))
-                .retrieve()
-                .toBodilessEntity();
-
-        // 주문 상세 조회 → 스냅샷 가격 확인
-        var detailResponse = client.get()
-                .uri("/api/v1/orders/" + orderId)
-                .header("Authorization", "Bearer " + customerToken(1L))
-                .retrieve()
-                .toEntity(OrderDetailResponse.class);
-
-        assertThat(detailResponse.getBody().items().get(0).price()).isEqualTo(10000L);
-    }
-
-    @Test
-    @DisplayName("취소 API가 재고 복구 시 SOLD_OUT 상태의 Variant를 ON_SALE로 전환한다")
-    void cancel_restores_stock_and_transitions_sold_out_to_on_sale() {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-        Long variantId = createVariant(productId, 10000L, 1);
-
-        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
-
-        // 주문 취소
-        client.post()
-                .uri("/api/v1/orders/" + orderId + "/cancel")
-                .header("Authorization", "Bearer " + customerToken(1L))
-                .retrieve()
-                .toBodilessEntity();
-
-        // 재고 복구 후 Variant 상태가 ON_SALE로 전환됐는지 확인
-        VariantStatus finalStatus = productVariantRepository.findById(variantId).get().getStatus();
-        assertThat(finalStatus).isEqualTo(VariantStatus.ON_SALE);
-    }
-
-    @Test
-    @DisplayName("주문 목록 조회 API가 다른 사용자의 주문을 결과에 포함하지 않는다")
-    void order_list_excludes_other_users_orders() {
-        Long categoryId = createCategory("의류");
-        Long productId = createProduct("티셔츠", categoryId);
-        Long variantId = createVariant(productId, 10000L, 10);
-
-        // 사용자 A 주문
-        createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
-        // 사용자 B 주문
-        createOrder(2L, List.of(Map.of("variantId", variantId, "quantity", 1)));
-
-        // 사용자 A 조회 → 자신의 주문 1건만
-        var responseA = client.get()
-                .uri("/api/v1/orders")
-                .header("Authorization", "Bearer " + customerToken(1L))
-                .retrieve()
-                .toEntity(new ParameterizedTypeReference<PageResponse<OrderResponse>>() {});
-
-        assertThat(responseA.getBody().totalElements()).isEqualTo(1);
-        assertThat(responseA.getBody().content()).allMatch(o -> o.memberId().equals(1L));
-
-        // 사용자 B 조회 → 자신의 주문 1건만
-        var responseB = client.get()
-                .uri("/api/v1/orders")
-                .header("Authorization", "Bearer " + customerToken(2L))
-                .retrieve()
-                .toEntity(new ParameterizedTypeReference<PageResponse<OrderResponse>>() {});
-
-        assertThat(responseB.getBody().totalElements()).isEqualTo(1);
-        assertThat(responseB.getBody().content()).allMatch(o -> o.memberId().equals(2L));
-    }
 }
