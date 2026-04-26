@@ -1,7 +1,7 @@
 CREATE TABLE orders
 (
     id           BIGSERIAL PRIMARY KEY,
-    member_id    BIGINT      NOT NULL,
+    member_id    BIGINT      NOT NULL REFERENCES members (id),
     status       VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     total_amount BIGINT      NOT NULL,
     created_at   TIMESTAMP   NOT NULL DEFAULT NOW(),
@@ -14,7 +14,7 @@ CREATE TABLE order_items
 (
     id           BIGSERIAL PRIMARY KEY,
     order_id     BIGINT       NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
-    variant_id   BIGINT       NOT NULL,
+    variant_id   BIGINT       NOT NULL REFERENCES product_variants (id),
     product_name VARCHAR(255) NOT NULL,
     price        BIGINT       NOT NULL,
     quantity     INT          NOT NULL

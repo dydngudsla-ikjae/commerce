@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,21 +33,29 @@ public class OrderService {
 
     @Transactional
     public OrderResponse createOrder(Long memberId, CreateOrderRequest request) {
-        // 1. Variant 검증 및 total_amount 계산
+        // 1. 모든 Variant를 product JOIN FETCH로 한 번에 조회
+        List<Long> variantIds = request.items().stream()
+                .map(item -> item.variantId())
+                .toList();
+
+        Map<Long, ProductVariant> variantMap = productVariantRepository.findByIdInWithProduct(variantIds)
+                .stream()
+                .collect(Collectors.toMap(ProductVariant::getId, v -> v));
+
+        // 2. Variant 상태 검증 및 total_amount 계산
         long totalAmount = 0L;
-
         for (var itemRequest : request.items()) {
-            ProductVariant variant = productVariantRepository.findById(itemRequest.variantId())
-                    .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
-
+            ProductVariant variant = variantMap.get(itemRequest.variantId());
+            if (variant == null) {
+                throw new BusinessException(ErrorCode.VARIANT_NOT_FOUND);
+            }
             if (variant.getStatus() != VariantStatus.ON_SALE) {
                 throw new BusinessException(ErrorCode.VARIANT_SOLD_OUT);
             }
-
             totalAmount += variant.getPrice() * itemRequest.quantity();
         }
 
-        // 2. 재고 차감 (atomic)
+        // 3. 재고 차감 (atomic, clearAutomatically로 1차 캐시 초기화됨)
         for (var itemRequest : request.items()) {
             int updated = productVariantRepository.decreaseStock(itemRequest.variantId(), itemRequest.quantity());
             if (updated == 0) {
@@ -53,17 +63,14 @@ public class OrderService {
             }
         }
 
-        // 3. 주문 생성
+        // 4. 주문 생성 및 OrderItem 스냅샷 저장 (variantMap은 detach 후에도 이미 로딩된 값 사용)
         Order order = Order.create(memberId, totalAmount);
         orderRepository.save(order);
 
-        // 4. OrderItem 생성 (스냅샷 저장)
         for (var itemRequest : request.items()) {
-            ProductVariant variant = productVariantRepository.findById(itemRequest.variantId())
-                    .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
-            String productName = variant.getProduct().getName();
-            long price = variant.getPrice();
-            OrderItem item = OrderItem.create(order, itemRequest.variantId(), productName, price, itemRequest.quantity());
+            ProductVariant variant = variantMap.get(itemRequest.variantId());
+            OrderItem item = OrderItem.create(order, itemRequest.variantId(),
+                    variant.getProduct().getName(), variant.getPrice(), itemRequest.quantity());
             order.getItems().add(item);
         }
 
