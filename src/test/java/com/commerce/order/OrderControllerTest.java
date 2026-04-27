@@ -28,6 +28,11 @@ import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -510,6 +515,65 @@ class OrderControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("주문 생성 API가 주문으로 재고가 0이 되면 Variant 상태를 SOLD_OUT으로 전환한다")
+    void createOrder_transitions_variant_to_sold_out_when_stock_reaches_zero() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 2);
+
+        createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 2)));
+
+        VariantStatus status = productVariantRepository.findById(variantId).get().getStatus();
+        assertThat(status).isEqualTo(VariantStatus.SOLD_OUT);
+    }
+
+    @Test
+    @DisplayName("주문 생성 API가 동시 요청에서 재고를 초과하지 않는다 (낙관적 락)")
+    void createOrder_does_not_oversell_under_concurrent_requests() throws InterruptedException {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 1);
+
+        int threadCount = 5;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger failCount = new AtomicInteger();
+
+        for (int i = 0; i < threadCount; i++) {
+            long memberId = i + 1L;
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    var body = Map.of("items", List.of(Map.of("variantId", variantId, "quantity", 1)));
+                    client.post()
+                            .uri("/api/v1/orders")
+                            .header("Authorization", "Bearer " + customerToken(memberId))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(body)
+                            .retrieve()
+                            .toBodilessEntity();
+                    successCount.incrementAndGet();
+                } catch (HttpClientErrorException e) {
+                    failCount.incrementAndGet();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(successCount.get()).isEqualTo(1);
+        assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(0);
     }
 
     @Test

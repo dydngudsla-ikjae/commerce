@@ -1,5 +1,7 @@
 package com.commerce.product.domain;
 
+import com.commerce.global.exception.BusinessException;
+import com.commerce.global.exception.ErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,6 +39,10 @@ public class ProductVariant {
     @Column(nullable = false)
     private VariantStatus status;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @OneToMany(mappedBy = "variant", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProductVariantOption> variantOptions = new ArrayList<>();
 
@@ -65,5 +71,13 @@ public class ProductVariant {
     public void updateStock(int stock) {
         this.stock = stock;
         this.status = stock > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
+    }
+
+    public void decreaseStock(int quantity) {
+        if (this.stock < quantity) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        }
+        this.stock -= quantity;
+        this.status = this.stock > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
     }
 }
