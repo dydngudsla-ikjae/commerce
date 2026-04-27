@@ -31,6 +31,17 @@ public class OptimisticLockStockStrategy implements StockDeductionStrategy {
     }
 
     @Override
+    public void restore(List<StockDeductionCommand> commands) {
+        commands.stream()
+                .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
+                .forEach(cmd -> {
+                    ProductVariant variant = productVariantRepository.findById(cmd.variantId())
+                            .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
+                    variant.increaseStock(cmd.quantity());
+                });
+    }
+
+    @Override
     public boolean isRetryable(Exception e) {
         return e instanceof OptimisticLockingFailureException;
     }

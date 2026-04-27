@@ -32,6 +32,10 @@ public class Order {
     @Column(nullable = false)
     private OrderStatus status;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Column(nullable = false)
     private long totalAmount;
 

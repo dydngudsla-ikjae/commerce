@@ -118,8 +118,23 @@ public class OrderService {
         return OrderResponse.from(order);
     }
 
-    @Transactional
     public OrderResponse cancel(Long memberId, Long orderId) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                return transactionTemplate.execute(status -> doCancel(memberId, orderId));
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e)) {
+                    throw e;
+                }
+                if (attempt < MAX_RETRIES - 1) {
+                    applyBackoff(attempt);
+                }
+            }
+        }
+        throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+    }
+
+    private OrderResponse doCancel(Long memberId, Long orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
@@ -127,14 +142,12 @@ public class OrderService {
             throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
         }
 
-        List<OrderItem> items = order.getItems();
-        for (OrderItem item : items) {
-            productVariantRepository.increaseStock(item.getVariantId(), item.getQuantity());
-        }
+        List<StockDeductionCommand> commands = order.getItems().stream()
+                .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                .toList();
 
-        order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
         order.cancel();
+        stockDeductionStrategy.restore(commands);
 
         return OrderResponse.from(order);
     }

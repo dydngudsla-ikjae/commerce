@@ -28,6 +28,13 @@ public class AtomicUpdateStockStrategy implements StockDeductionStrategy {
     }
 
     @Override
+    public void restore(List<StockDeductionCommand> commands) {
+        commands.stream()
+                .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
+                .forEach(cmd -> productVariantRepository.increaseStock(cmd.variantId(), cmd.quantity()));
+    }
+
+    @Override
     public boolean isRetryable(Exception e) {
         return false;
     }

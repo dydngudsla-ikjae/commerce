@@ -780,6 +780,46 @@ class OrderControllerTest {
     }
 
     @Test
+    @DisplayName("취소 API가 동시 요청에서 재고를 중복 복구하지 않는다 (낙관적 락)")
+    void cancel_does_not_duplicate_stock_restore_under_concurrent_requests() throws InterruptedException {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 1);
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        int threadCount = 5;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger();
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    client.post()
+                            .uri("/api/v1/orders/" + orderId + "/cancel")
+                            .header("Authorization", "Bearer " + customerToken(1L))
+                            .retrieve()
+                            .toBodilessEntity();
+                    successCount.incrementAndGet();
+                } catch (Exception e) {
+                    // 실패 (ORDER_INVALID_STATUS 또는 낙관적 락 충돌)
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(successCount.get()).isEqualTo(1);
+        assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("취소 API가 재고 복구 시 SOLD_OUT 상태의 Variant를 ON_SALE로 전환한다")
     void cancel_restores_stock_and_transitions_sold_out_to_on_sale() {
         Long categoryId = createCategory("의류");

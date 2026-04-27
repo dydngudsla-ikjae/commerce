@@ -80,4 +80,11 @@ public class ProductVariant {
         this.stock -= quantity;
         this.status = this.stock > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
     }
+
+    public void increaseStock(int quantity) {
+        this.stock += quantity;
+        if (this.status == VariantStatus.SOLD_OUT) {
+            this.status = VariantStatus.ON_SALE;
+        }
+    }
 }
