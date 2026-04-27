@@ -6,6 +6,7 @@ import com.commerce.product.domain.ProductVariant;
 import com.commerce.product.repository.ProductVariantRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Primary;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -27,5 +28,10 @@ public class OptimisticLockStockStrategy implements StockDeductionStrategy {
                             .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
                     variant.decreaseStock(cmd.quantity());
                 });
+    }
+
+    @Override
+    public boolean isRetryable(Exception e) {
+        return e instanceof OptimisticLockingFailureException;
     }
 }

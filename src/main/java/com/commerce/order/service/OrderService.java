@@ -15,7 +15,7 @@ import com.commerce.product.repository.ProductVariantRepository;
 import com.commerce.product.service.StockDeductionCommand;
 import com.commerce.product.service.StockDeductionStrategy;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.OptimisticLockingFailureException;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -44,7 +44,10 @@ public class OrderService {
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 return transactionTemplate.execute(status -> doCreateOrder(memberId, request));
-            } catch (OptimisticLockingFailureException e) {
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e)) {
+                    throw e;
+                }
                 if (attempt < MAX_RETRIES - 1) {
                     applyBackoff(attempt);
                 }

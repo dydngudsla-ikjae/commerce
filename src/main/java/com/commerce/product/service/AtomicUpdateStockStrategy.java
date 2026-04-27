@@ -26,4 +26,9 @@ public class AtomicUpdateStockStrategy implements StockDeductionStrategy {
                     }
                 });
     }
+
+    @Override
+    public boolean isRetryable(Exception e) {
+        return false;
+    }
 }
