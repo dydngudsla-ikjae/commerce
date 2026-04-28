@@ -514,7 +514,7 @@ class OrderControllerTest {
                 .toEntity(OrderResponse.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(4);
+        assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(4);
     }
 
     @Test
@@ -573,7 +573,7 @@ class OrderControllerTest {
         executor.shutdown();
 
         assertThat(successCount.get()).isEqualTo(1);
-        assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(0);
+        assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(0);
     }
 
     @Test
@@ -816,7 +816,7 @@ class OrderControllerTest {
         executor.shutdown();
 
         assertThat(successCount.get()).isEqualTo(1);
-        assertThat(productVariantRepository.findById(variantId).get().getStock()).isEqualTo(1);
+        assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(1);
     }
 
     @Test

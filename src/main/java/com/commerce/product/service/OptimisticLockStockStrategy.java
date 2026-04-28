@@ -20,24 +20,35 @@ public class OptimisticLockStockStrategy implements StockDeductionStrategy {
     private final ProductVariantRepository productVariantRepository;
 
     @Override
-    public void deduct(List<StockDeductionCommand> commands) {
+    public void reserve(List<StockDeductionCommand> commands) {
         commands.stream()
                 .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
                 .forEach(cmd -> {
                     ProductVariant variant = productVariantRepository.findById(cmd.variantId())
                             .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
-                    variant.decreaseStock(cmd.quantity());
+                    variant.reserve(cmd.quantity());
                 });
     }
 
     @Override
-    public void restore(List<StockDeductionCommand> commands) {
+    public void release(List<StockDeductionCommand> commands) {
         commands.stream()
                 .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
                 .forEach(cmd -> {
                     ProductVariant variant = productVariantRepository.findById(cmd.variantId())
                             .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
-                    variant.increaseStock(cmd.quantity());
+                    variant.release(cmd.quantity());
+                });
+    }
+
+    @Override
+    public void confirm(List<StockDeductionCommand> commands) {
+        commands.stream()
+                .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
+                .forEach(cmd -> {
+                    ProductVariant variant = productVariantRepository.findById(cmd.variantId())
+                            .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
+                    variant.confirm(cmd.quantity());
                 });
     }
 

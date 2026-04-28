@@ -16,11 +16,11 @@ public class AtomicUpdateStockStrategy implements StockDeductionStrategy {
     private final ProductVariantRepository productVariantRepository;
 
     @Override
-    public void deduct(List<StockDeductionCommand> commands) {
+    public void reserve(List<StockDeductionCommand> commands) {
         commands.stream()
                 .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
                 .forEach(cmd -> {
-                    int updated = productVariantRepository.decreaseStock(cmd.variantId(), cmd.quantity());
+                    int updated = productVariantRepository.reserveStock(cmd.variantId(), cmd.quantity());
                     if (updated == 0) {
                         throw new BusinessException(ErrorCode.OUT_OF_STOCK);
                     }
@@ -28,10 +28,17 @@ public class AtomicUpdateStockStrategy implements StockDeductionStrategy {
     }
 
     @Override
-    public void restore(List<StockDeductionCommand> commands) {
+    public void release(List<StockDeductionCommand> commands) {
         commands.stream()
                 .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
-                .forEach(cmd -> productVariantRepository.increaseStock(cmd.variantId(), cmd.quantity()));
+                .forEach(cmd -> productVariantRepository.releaseStock(cmd.variantId(), cmd.quantity()));
+    }
+
+    @Override
+    public void confirm(List<StockDeductionCommand> commands) {
+        commands.stream()
+                .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
+                .forEach(cmd -> productVariantRepository.confirmStock(cmd.variantId(), cmd.quantity()));
     }
 
     @Override

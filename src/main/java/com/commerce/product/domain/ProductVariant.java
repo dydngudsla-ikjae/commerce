@@ -35,6 +35,9 @@ public class ProductVariant {
     @Column(nullable = false)
     private int stock;
 
+    @Column(nullable = false)
+    private int reservedStock = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private VariantStatus status;
@@ -59,8 +62,35 @@ public class ProductVariant {
         variant.product = product;
         variant.price = price;
         variant.stock = stock;
+        variant.reservedStock = 0;
         variant.status = stock > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
         return variant;
+    }
+
+    public int getAvailableStock() {
+        return this.stock - this.reservedStock;
+    }
+
+    public void reserve(int quantity) {
+        if (getAvailableStock() < quantity) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        }
+        this.reservedStock += quantity;
+        if (getAvailableStock() == 0) {
+            this.status = VariantStatus.SOLD_OUT;
+        }
+    }
+
+    public void release(int quantity) {
+        this.reservedStock -= quantity;
+        if (this.status == VariantStatus.SOLD_OUT && getAvailableStock() > 0) {
+            this.status = VariantStatus.ON_SALE;
+        }
+    }
+
+    public void confirm(int quantity) {
+        this.stock -= quantity;
+        this.reservedStock -= quantity;
     }
 
     public void updatePriceAndStatus(long price, VariantStatus status) {
@@ -70,21 +100,14 @@ public class ProductVariant {
 
     public void updateStock(int stock) {
         this.stock = stock;
-        this.status = stock > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
+        this.status = getAvailableStock() > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
     }
 
     public void decreaseStock(int quantity) {
-        if (this.stock < quantity) {
+        if (getAvailableStock() < quantity) {
             throw new BusinessException(ErrorCode.OUT_OF_STOCK);
         }
         this.stock -= quantity;
-        this.status = this.stock > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
-    }
-
-    public void increaseStock(int quantity) {
-        this.stock += quantity;
-        if (this.status == VariantStatus.SOLD_OUT) {
-            this.status = VariantStatus.ON_SALE;
-        }
+        this.status = getAvailableStock() > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
     }
 }

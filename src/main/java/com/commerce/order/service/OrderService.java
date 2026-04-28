@@ -82,7 +82,7 @@ public class OrderService {
         List<StockDeductionCommand> commands = request.items().stream()
                 .map(item -> new StockDeductionCommand(item.variantId(), item.quantity()))
                 .toList();
-        stockDeductionStrategy.deduct(commands);
+        stockDeductionStrategy.reserve(commands);
 
         Order order = Order.create(memberId, totalAmount);
         orderRepository.save(order);
@@ -121,11 +121,29 @@ public class OrderService {
         // 2. 외부 PG API 호출 (트랜잭션 없음)
         paymentGateway.charge(orderId, order.getTotalAmount());
 
-        // 3. 상태 업데이트 (트랜잭션)
+        // 3. 결제 확정
+        return confirmPayment(orderId);
+    }
+
+    public OrderResponse confirmPayment(Long orderId) {
         return transactionTemplate.execute(status -> {
-            Order o = orderRepository.findById(orderId).orElseThrow();
-            o.pay();
-            return OrderResponse.from(o);
+            Order order = orderRepository.findByIdWithItems(orderId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+
+            if (order.getStatus() == OrderStatus.PAID) {
+                return OrderResponse.from(order);
+            }
+            if (order.getStatus() != OrderStatus.PENDING) {
+                throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+            }
+
+            List<StockDeductionCommand> commands = order.getItems().stream()
+                    .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                    .toList();
+            stockDeductionStrategy.confirm(commands);
+
+            order.pay();
+            return OrderResponse.from(order);
         });
     }
 
@@ -158,9 +176,42 @@ public class OrderService {
                 .toList();
 
         order.cancel();
-        stockDeductionStrategy.restore(commands);
+        stockDeductionStrategy.release(commands);
 
         return OrderResponse.from(order);
+    }
+
+    public void expireOrder(Long orderId) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                transactionTemplate.executeWithoutResult(status -> doExpireOrder(orderId));
+                return;
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e)) {
+                    throw e;
+                }
+                if (attempt < MAX_RETRIES - 1) {
+                    applyBackoff(attempt);
+                }
+            }
+        }
+        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+    }
+
+    private void doExpireOrder(Long orderId) {
+        Order order = orderRepository.findByIdWithItems(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            return;
+        }
+
+        List<StockDeductionCommand> commands = order.getItems().stream()
+                .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                .toList();
+
+        order.cancel();
+        stockDeductionStrategy.release(commands);
     }
 
     @Transactional(readOnly = true)

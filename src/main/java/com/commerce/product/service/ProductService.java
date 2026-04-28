@@ -150,7 +150,7 @@ public class ProductService {
                     .toList();
         }
 
-        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getStock(),
+        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getAvailableStock(),
                 variant.getStatus(), optionValues);
     }
 
@@ -162,7 +162,7 @@ public class ProductService {
         variant.updatePriceAndStatus(request.price(), request.status());
 
         List<String> optionValues = getVariantOptionValues(variantId);
-        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getStock(),
+        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getAvailableStock(),
                 variant.getStatus(), optionValues);
     }
 
@@ -174,7 +174,7 @@ public class ProductService {
         variant.updateStock(request.stock());
 
         List<String> optionValues = getVariantOptionValues(variantId);
-        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getStock(),
+        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getAvailableStock(),
                 variant.getStatus(), optionValues);
     }
 
@@ -191,7 +191,7 @@ public class ProductService {
         // 업데이트 후 최신 상태 반환
         ProductVariant variant = productVariantRepository.findById(variantId).orElseThrow();
         List<String> optionValues = getVariantOptionValues(variantId);
-        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getStock(),
+        return new VariantResponse(variant.getId(), variant.getPrice(), variant.getAvailableStock(),
                 variant.getStatus(), optionValues);
     }
 
@@ -240,7 +240,7 @@ public class ProductService {
         List<ProductVariant> variants = productVariantRepository.findByProductId(product.getId());
         List<ProductDetailResponse.VariantDto> variantDtos = variants.stream()
                 .map(v -> new ProductDetailResponse.VariantDto(
-                        v.getId(), v.getPrice(), v.getStock(), v.getStatus(),
+                        v.getId(), v.getPrice(), v.getAvailableStock(), v.getStatus(),
                         variantOptionMap.getOrDefault(v.getId(), List.of())
                 ))
                 .toList();
