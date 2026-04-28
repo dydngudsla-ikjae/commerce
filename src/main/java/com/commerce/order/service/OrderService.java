@@ -4,6 +4,7 @@ import com.commerce.global.exception.BusinessException;
 import com.commerce.global.exception.ErrorCode;
 import com.commerce.order.domain.Order;
 import com.commerce.order.domain.OrderItem;
+import com.commerce.order.domain.OrderStatus;
 import com.commerce.order.dto.CreateOrderRequest;
 import com.commerce.order.dto.OrderDetailResponse;
 import com.commerce.order.dto.OrderResponse;
@@ -39,6 +40,7 @@ public class OrderService {
     private final ProductVariantRepository productVariantRepository;
     private final StockDeductionStrategy stockDeductionStrategy;
     private final TransactionTemplate transactionTemplate;
+    private final PaymentGateway paymentGateway;
 
     public OrderResponse createOrder(Long memberId, CreateOrderRequest request) {
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -105,17 +107,26 @@ public class OrderService {
         }
     }
 
-    @Transactional
     public OrderResponse pay(Long memberId, Long orderId) {
+        // 1. 검증 (트랜잭션 없음)
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
-
         if (!order.getMemberId().equals(memberId)) {
             throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
         }
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
 
-        order.pay();
-        return OrderResponse.from(order);
+        // 2. 외부 PG API 호출 (트랜잭션 없음)
+        paymentGateway.charge(orderId, order.getTotalAmount());
+
+        // 3. 상태 업데이트 (트랜잭션)
+        return transactionTemplate.execute(status -> {
+            Order o = orderRepository.findById(orderId).orElseThrow();
+            o.pay();
+            return OrderResponse.from(o);
+        });
     }
 
     public OrderResponse cancel(Long memberId, Long orderId) {
