@@ -126,25 +126,39 @@ public class OrderService {
     }
 
     public OrderResponse confirmPayment(Long orderId) {
-        return transactionTemplate.execute(status -> {
-            Order order = orderRepository.findByIdWithItems(orderId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
-
-            if (order.getStatus() == OrderStatus.PAID) {
-                return OrderResponse.from(order);
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                return transactionTemplate.execute(status -> doConfirmPayment(orderId));
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e)) {
+                    throw e;
+                }
+                if (attempt < MAX_RETRIES - 1) {
+                    applyBackoff(attempt);
+                }
             }
-            if (order.getStatus() != OrderStatus.PENDING) {
-                throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
-            }
+        }
+        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+    }
 
-            List<StockDeductionCommand> commands = order.getItems().stream()
-                    .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
-                    .toList();
-            stockDeductionStrategy.confirm(commands);
+    private OrderResponse doConfirmPayment(Long orderId) {
+        Order order = orderRepository.findByIdWithItems(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
-            order.pay();
+        if (order.getStatus() == OrderStatus.PAID) {
             return OrderResponse.from(order);
-        });
+        }
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
+
+        List<StockDeductionCommand> commands = order.getItems().stream()
+                .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                .toList();
+        stockDeductionStrategy.confirm(commands);
+
+        order.pay();
+        return OrderResponse.from(order);
     }
 
     public OrderResponse cancel(Long memberId, Long orderId) {
@@ -164,7 +178,7 @@ public class OrderService {
     }
 
     private OrderResponse doCancel(Long memberId, Long orderId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
         if (!order.getMemberId().equals(memberId)) {
