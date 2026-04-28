@@ -152,12 +152,13 @@ public class OrderService {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
 
+        order.pay();
+
         List<StockDeductionCommand> commands = order.getItems().stream()
                 .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
                 .toList();
         stockDeductionStrategy.confirm(commands);
 
-        order.pay();
         return OrderResponse.from(order);
     }
 

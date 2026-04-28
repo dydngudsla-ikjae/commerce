@@ -82,6 +82,9 @@ public class ProductVariant {
     }
 
     public void release(int quantity) {
+        if (this.reservedStock < quantity) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        }
         this.reservedStock -= quantity;
         if (this.status == VariantStatus.SOLD_OUT && getAvailableStock() > 0) {
             this.status = VariantStatus.ON_SALE;
@@ -89,6 +92,9 @@ public class ProductVariant {
     }
 
     public void confirm(int quantity) {
+        if (this.reservedStock < quantity || this.stock < quantity) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        }
         this.stock -= quantity;
         this.reservedStock -= quantity;
     }

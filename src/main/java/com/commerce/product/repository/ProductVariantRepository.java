@@ -26,7 +26,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     @Query("""
         UPDATE ProductVariant v
         SET v.reservedStock = v.reservedStock + :quantity,
-            v.status = CASE WHEN (v.stock - v.reservedStock - :quantity) > 0 THEN com.commerce.product.domain.VariantStatus.ON_SALE
+            v.status = CASE WHEN v.status = com.commerce.product.domain.VariantStatus.STOPPED THEN v.status
+                            WHEN (v.stock - v.reservedStock - :quantity) > 0 THEN com.commerce.product.domain.VariantStatus.ON_SALE
                             ELSE com.commerce.product.domain.VariantStatus.SOLD_OUT END
         WHERE v.id = :id AND (v.stock - v.reservedStock) >= :quantity
         """)
