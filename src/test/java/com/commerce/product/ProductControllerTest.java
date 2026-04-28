@@ -312,6 +312,19 @@ class ProductControllerTest {
     // ==================== 상품 목록 조회 ====================
 
     @Test
+    @DisplayName("상품 목록 API가 상품이 없으면 빈 배열을 반환한다")
+    void getProductsReturnsEmptyWhenNone() {
+        var response = client.get()
+                .uri("/api/v1/products")
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<ProductResponse>>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).isEmpty();
+        assertThat(response.getBody().totalElements()).isEqualTo(0);
+    }
+
+    @Test
     @DisplayName("상품 목록 API가 ON_SALE 상품을 반환한다")
     void getProductsReturnsOnSaleProducts() {
         Long categoryId = createCategory("의류");
@@ -810,6 +823,33 @@ class ProductControllerTest {
     }
 
     @Test
+    @DisplayName("옵션 추가 API가 deleted 상품에 404 PRODUCT_NOT_FOUND를 반환한다")
+    void addOptionToDeletedProductReturns404() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+
+        client.delete()
+                .uri("/api/v1/admin/products/" + productId)
+                .header("Authorization", "Bearer " + createAdminToken())
+                .retrieve()
+                .toBodilessEntity();
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/admin/products/" + productId + "/options")
+                        .header("Authorization", "Bearer " + createAdminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("name", "COLOR", "values", List.of("BLACK")))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.NotFound.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("PRODUCT_NOT_FOUND");
+    }
+
+    @Test
     @DisplayName("옵션 추가 API가 ADMIN 권한 없이 403을 반환한다")
     void addOptionWithoutAdmin() {
         Long categoryId = createCategory("의류");
@@ -927,6 +967,27 @@ class ProductControllerTest {
 
         assertThat(ex).isNotNull();
         assertThat(ex.getResponseBodyAsString()).contains("PRODUCT_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("Variant 생성 API가 존재하지 않는 optionValueId 요청 시 404 OPTION_VALUE_NOT_FOUND를 반환한다")
+    void createVariantWithNonExistentOptionValueReturns404() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/admin/products/" + productId + "/variants")
+                        .header("Authorization", "Bearer " + createAdminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("price", 10000L, "stock", 5, "optionValueIds", List.of(99999L)))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.NotFound.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("OPTION_VALUE_NOT_FOUND");
     }
 
     @Test
@@ -1112,6 +1173,105 @@ class ProductControllerTest {
                         .header("Authorization", "Bearer " + createCustomerToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("stock", 10))
+                        .retrieve()
+                        .toBodilessEntity()
+        ).isInstanceOf(HttpClientErrorException.Forbidden.class);
+    }
+
+    // ==================== 재고 차감 ====================
+
+    @Test
+    @DisplayName("재고 차감 API가 stock을 정상 차감하고 잔여 재고를 반환한다")
+    void decreaseStockSuccessAndReturnsRemainingStock() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10, null);
+
+        var response = client.put()
+                .uri("/api/v1/admin/variants/" + variantId + "/stock/decrease")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("quantity", 3))
+                .retrieve()
+                .toEntity(VariantResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().stock()).isEqualTo(7);
+        assertThat(response.getBody().status()).isEqualTo(VariantStatus.ON_SALE);
+    }
+
+    @Test
+    @DisplayName("재고 차감 API가 재고 부족 시 400 OUT_OF_STOCK을 반환한다")
+    void decreaseStockWithInsufficientStockReturns400() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 5, null);
+
+        var ex = catchThrowableOfType(
+                () -> client.put()
+                        .uri("/api/v1/admin/variants/" + variantId + "/stock/decrease")
+                        .header("Authorization", "Bearer " + createAdminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("quantity", 10))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.BadRequest.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("OUT_OF_STOCK");
+    }
+
+    @Test
+    @DisplayName("재고 차감 API가 stock을 0으로 만들면 Variant 상태를 SOLD_OUT으로 전환한다")
+    void decreaseStockToZeroTransitionsToSoldOut() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 5, null);
+
+        var response = client.put()
+                .uri("/api/v1/admin/variants/" + variantId + "/stock/decrease")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("quantity", 5))
+                .retrieve()
+                .toEntity(VariantResponse.class);
+
+        assertThat(response.getBody().stock()).isEqualTo(0);
+        assertThat(response.getBody().status()).isEqualTo(VariantStatus.SOLD_OUT);
+    }
+
+    @Test
+    @DisplayName("재고 차감 API가 존재하지 않는 Variant에 404 VARIANT_NOT_FOUND를 반환한다")
+    void decreaseStockForNonExistentVariantReturns404() {
+        var ex = catchThrowableOfType(
+                () -> client.put()
+                        .uri("/api/v1/admin/variants/99999/stock/decrease")
+                        .header("Authorization", "Bearer " + createAdminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("quantity", 1))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.NotFound.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("VARIANT_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("재고 차감 API가 ADMIN 권한 없이 403을 반환한다")
+    void decreaseStockWithoutAdminReturns403() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10, null);
+
+        assertThatThrownBy(() ->
+                client.put()
+                        .uri("/api/v1/admin/variants/" + variantId + "/stock/decrease")
+                        .header("Authorization", "Bearer " + createCustomerToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("quantity", 1))
                         .retrieve()
                         .toBodilessEntity()
         ).isInstanceOf(HttpClientErrorException.Forbidden.class);

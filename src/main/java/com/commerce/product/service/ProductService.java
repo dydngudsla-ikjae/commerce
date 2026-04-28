@@ -185,7 +185,7 @@ public class ProductService {
 
         int updated = productVariantRepository.decreaseStock(variantId, request.quantity());
         if (updated == 0) {
-            throw new BusinessException(ErrorCode.VARIANT_SOLD_OUT);
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK);
         }
 
         // 업데이트 후 최신 상태 반환

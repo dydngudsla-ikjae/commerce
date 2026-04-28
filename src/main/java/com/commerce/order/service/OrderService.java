@@ -131,7 +131,7 @@ public class OrderService {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
     }
 
     private OrderResponse doCancel(Long memberId, Long orderId) {
