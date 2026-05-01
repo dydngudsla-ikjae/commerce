@@ -30,7 +30,8 @@ public class PaymentRetryScheduler {
     @Scheduled(fixedDelay = 60_000)
     public void retryPayments() {
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(RETRY_INTERVAL_MINUTES);
-        List<Order> orders = orderRepository.findRetryablePaymentInProgressOrders(threshold);
+        List<Order> orders = orderRepository.findRetryablePaymentInProgressOrders(
+                OrderStatus.PAYMENT_IN_PROGRESS, threshold);
 
         for (Order order : orders) {
             try {
@@ -49,35 +50,28 @@ public class PaymentRetryScheduler {
             log.info("결제 재시도 성공: orderId={}", orderId);
         } catch (Exception e) {
             log.warn("결제 재시도 실패: orderId={}, retryCount={}", orderId, order.getRetryCount(), e);
-            int newRetryCount = incrementRetryCount(orderId);
+            boolean exhausted = incrementRetryAndMaybeMarkFailed(orderId);
 
-            if (newRetryCount >= MAX_RETRY_COUNT) {
-                markAsFailed(orderId);
+            if (exhausted) {
                 opsAlertService.alertPaymentFailed(orderId);
                 log.error("결제 실패 확정 (retry 소진): orderId={}", orderId);
             }
         }
     }
 
-    private int incrementRetryCount(Long orderId) {
-        return transactionTemplate.execute(status -> {
+    private boolean incrementRetryAndMaybeMarkFailed(Long orderId) {
+        return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
             Order o = orderRepository.findById(orderId)
                     .orElseThrow(() -> new IllegalStateException("Order not found: " + orderId));
             if (o.getStatus() != OrderStatus.PAYMENT_IN_PROGRESS) {
-                return o.getRetryCount();
+                return false;
             }
             o.incrementRetry(LocalDateTime.now());
-            return o.getRetryCount();
-        });
-    }
-
-    private void markAsFailed(Long orderId) {
-        transactionTemplate.executeWithoutResult(status -> {
-            Order o = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new IllegalStateException("Order not found: " + orderId));
-            if (o.getStatus() == OrderStatus.PAYMENT_IN_PROGRESS) {
+            if (o.getRetryCount() >= MAX_RETRY_COUNT) {
                 o.markPaymentFailed();
+                return true;
             }
-        });
+            return false;
+        }));
     }
 }

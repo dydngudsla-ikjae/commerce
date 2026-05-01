@@ -43,7 +43,7 @@ public class AdminPaymentController {
     public ResponseEntity<VerifyPaymentResponse> verifyPayment(
             @Parameter(description = "주문 ID") @PathVariable Long id,
             @AuthenticationPrincipal AuthMember authMember) {
-        String verifiedBy = authMember != null ? String.valueOf(authMember.id()) : "admin";
+        String verifiedBy = String.valueOf(authMember.id());
         VerifyPaymentResponse response = adminPaymentService.verifyPayment(id, verifiedBy);
         return ResponseEntity.ok(response);
     }
@@ -68,7 +68,7 @@ public class AdminPaymentController {
             @Parameter(description = "주문 ID") @PathVariable Long id,
             @Valid @RequestBody AdminForceActionRequest request,
             @AuthenticationPrincipal AuthMember authMember) {
-        String performedBy = authMember != null ? String.valueOf(authMember.id()) : "admin";
+        String performedBy = String.valueOf(authMember.id());
         OrderResponse response = adminPaymentService.forceConfirm(id, request.reason(), performedBy);
         return ResponseEntity.ok(response);
     }
@@ -93,7 +93,7 @@ public class AdminPaymentController {
             @Parameter(description = "주문 ID") @PathVariable Long id,
             @Valid @RequestBody AdminForceActionRequest request,
             @AuthenticationPrincipal AuthMember authMember) {
-        String performedBy = authMember != null ? String.valueOf(authMember.id()) : "admin";
+        String performedBy = String.valueOf(authMember.id());
         OrderResponse response = adminPaymentService.forceCancel(id, request.reason(), performedBy);
         return ResponseEntity.ok(response);
     }

@@ -46,10 +46,6 @@ public class AdminPaymentService {
 
     @Transactional
     public OrderResponse forceConfirm(Long orderId, String reason, String performedBy) {
-        if (reason == null || reason.isBlank()) {
-            throw new BusinessException(ErrorCode.REASON_REQUIRED);
-        }
-
         Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
@@ -83,10 +79,6 @@ public class AdminPaymentService {
 
     @Transactional
     public OrderResponse forceCancel(Long orderId, String reason, String performedBy) {
-        if (reason == null || reason.isBlank()) {
-            throw new BusinessException(ErrorCode.REASON_REQUIRED);
-        }
-
         Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 

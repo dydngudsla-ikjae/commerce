@@ -123,7 +123,9 @@ class PaymentRetrySchedulerTest {
     }
 
     private void setOrderStatusToPaymentInProgress(Long orderId) {
-        jdbcTemplate.update("UPDATE orders SET status = 'PAYMENT_IN_PROGRESS' WHERE id = ?", orderId);
+        jdbcTemplate.update(
+                "UPDATE orders SET status = 'PAYMENT_IN_PROGRESS', pg_transaction_id = 'fake-tx-' || id WHERE id = ?",
+                orderId);
     }
 
     private void setRetryCount(Long orderId, int count) {
@@ -211,7 +213,7 @@ class PaymentRetrySchedulerTest {
         jdbcTemplate.update("UPDATE orders SET updated_at = ? WHERE id = ?", tenMinutesAgo, oldOrderId);
 
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(5);
-        var retryable = orderRepository.findRetryablePaymentInProgressOrders(threshold);
+        var retryable = orderRepository.findRetryablePaymentInProgressOrders(OrderStatus.PAYMENT_IN_PROGRESS, threshold);
 
         assertThat(retryable).extracting(Order::getId).contains(oldOrderId);
         assertThat(retryable).extracting(Order::getId).doesNotContain(freshOrderId);

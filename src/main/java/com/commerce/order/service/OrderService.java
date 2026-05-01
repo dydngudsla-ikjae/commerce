@@ -133,7 +133,7 @@ public class OrderService {
         try {
             pgResult = paymentGateway.charge(orderId, capturedAmount);
         } catch (PgChargeException e) {
-            // pg.charge 자체 실패 → 재고 해제 + CANCELLED
+            // PG가 실패를 명시적으로 반환 → 재고 해제 + CANCELLED
             transactionTemplate.executeWithoutResult(status -> {
                 Order order = orderRepository.findByIdWithItems(orderId)
                         .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
@@ -143,6 +143,11 @@ public class OrderService {
                 order.cancelByPgFailure();
                 stockDeductionStrategy.release(commands);
             });
+            throw new BusinessException(ErrorCode.PAYMENT_GATEWAY_ERROR);
+        } catch (Exception e) {
+            // 예기치 않은 오류 (네트워크 타임아웃 등) — PG 청구 여부 불명확
+            // pgTransactionId 미저장으로 인해 스케줄러 자동 재시도 대상에서 제외됨 → 관리자 수동 처리
+            log.error("pg.charge() 예기치 않은 오류 — 수동 개입 필요. orderId={}", orderId, e);
             throw new BusinessException(ErrorCode.PAYMENT_GATEWAY_ERROR);
         }
 

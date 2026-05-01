@@ -55,12 +55,13 @@ public class OrderController {
 
     @Operation(
         summary = "결제",
-        description = "PENDING 상태 주문을 결제합니다. " +
-                      "결제 성공 시 재고를 확정 차감하고 상태를 PAID로 변경합니다. " +
-                      "본인 주문이 아니거나 PENDING 상태가 아니면 오류를 반환합니다."
+        description = "PENDING 상태 주문에 대해 PG 결제를 요청합니다. " +
+                      "PG 호출 성공 후 재고 확정을 시도하며, 성공 시 PAID, " +
+                      "확정 실패 시 PAYMENT_IN_PROGRESS로 반환됩니다(스케줄러가 재시도). " +
+                      "PG 호출 자체 실패 시 즉시 CANCELLED로 전환됩니다."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "결제 성공",
+        @ApiResponse(responseCode = "200", description = "결제 처리 완료 (PAID 또는 PAYMENT_IN_PROGRESS)",
             content = @Content(schema = @Schema(implementation = OrderResponse.class))),
         @ApiResponse(responseCode = "400", description = "결제 불가 상태",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -69,7 +70,8 @@ public class OrderController {
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "404", description = "주문 없음",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-        @ApiResponse(responseCode = "500", description = "서버 오류")
+        @ApiResponse(responseCode = "502", description = "PG 호출 실패",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{id}/pay")
     public ResponseEntity<OrderResponse> pay(

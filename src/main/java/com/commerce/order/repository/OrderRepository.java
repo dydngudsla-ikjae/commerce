@@ -22,16 +22,16 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.status = :status AND o.createdAt < :threshold")
     List<Order> findByStatusAndCreatedAtBefore(@Param("status") OrderStatus status, @Param("threshold") LocalDateTime threshold);
 
-    /**
-     * PAYMENT_IN_PROGRESS 상태이고 마지막 retry 또는 updatedAt 기준으로 threshold 이전인 주문 조회
-     */
     @Query("""
             SELECT o FROM Order o
-            WHERE o.status = 'PAYMENT_IN_PROGRESS'
+            WHERE o.status = :status
+              AND o.pgTransactionId IS NOT NULL
               AND (
                 (o.lastRetryAt IS NULL AND o.updatedAt < :threshold)
                 OR o.lastRetryAt < :threshold
               )
             """)
-    List<Order> findRetryablePaymentInProgressOrders(@Param("threshold") LocalDateTime threshold);
+    List<Order> findRetryablePaymentInProgressOrders(
+            @Param("status") OrderStatus status,
+            @Param("threshold") LocalDateTime threshold);
 }
