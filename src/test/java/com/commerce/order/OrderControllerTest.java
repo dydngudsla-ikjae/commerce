@@ -6,6 +6,7 @@ import com.commerce.order.dto.OrderDetailResponse;
 import com.commerce.order.dto.OrderResponse;
 import com.commerce.order.repository.OrderItemRepository;
 import com.commerce.order.repository.OrderRepository;
+import com.commerce.order.service.FakePaymentGateway;
 import com.commerce.product.domain.VariantStatus;
 import com.commerce.product.dto.CategoryResponse;
 import com.commerce.product.dto.OptionResponse;
@@ -24,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
@@ -72,9 +74,13 @@ class OrderControllerTest {
     @Autowired
     private CategoryRepository categoryRepository;
 
+    @Autowired
+    private FakePaymentGateway fakePaymentGateway;
+
     @BeforeEach
     void setUp() {
         client = RestClient.create("http://localhost:" + port);
+        fakePaymentGateway.reset();
         orderItemRepository.deleteAll();
         orderRepository.deleteAll();
         productVariantOptionRepository.deleteAll();
@@ -726,6 +732,35 @@ class OrderControllerTest {
                         .retrieve()
                         .toBodilessEntity()
         ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
+    }
+
+    @Test
+    @DisplayName("결제 API가 pg.charge 실패 시 주문을 CANCELLED로 전환하고 재고를 복구한다 (502)")
+    void payOrderWithPgChargeFailureCancelsOrderAndRestoresStock() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 5);
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 2)));
+
+        fakePaymentGateway.setChargeWillFail(true);
+
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/orders/" + orderId + "/pay")
+                        .header("Authorization", "Bearer " + customerToken(1L))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpServerErrorException.class
+        );
+
+        assertThat(ex.getStatusCode().value()).isEqualTo(502);
+        assertThat(ex.getResponseBodyAsString()).contains("PAYMENT_GATEWAY_ERROR");
+
+        var order = orderRepository.findById(orderId).orElseThrow();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+
+        var variant = productVariantRepository.findById(variantId).orElseThrow();
+        assertThat(variant.getAvailableStock()).isEqualTo(5);
     }
 
     // ==================== 취소 API ====================

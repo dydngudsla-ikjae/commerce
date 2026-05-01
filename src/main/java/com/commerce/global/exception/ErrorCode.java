@@ -26,7 +26,12 @@ public enum ErrorCode {
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 주문입니다."),
     ORDER_INVALID_STATUS(HttpStatus.BAD_REQUEST, "현재 상태에서 허용되지 않는 요청입니다."),
     ORDER_ACCESS_DENIED(HttpStatus.FORBIDDEN, "타인의 주문에 접근할 수 없습니다."),
-    OUT_OF_STOCK(HttpStatus.BAD_REQUEST, "재고가 부족합니다.");
+    OUT_OF_STOCK(HttpStatus.BAD_REQUEST, "재고가 부족합니다."),
+
+    PAYMENT_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY, "결제 게이트웨이 오류가 발생했습니다."),
+    PAYMENT_VERIFY_REQUIRED(HttpStatus.BAD_REQUEST, "결제 검증이 필요합니다."),
+    PAYMENT_VERIFY_MISMATCH(HttpStatus.BAD_REQUEST, "결제 검증 상태가 일치하지 않습니다."),
+    REASON_REQUIRED(HttpStatus.BAD_REQUEST, "사유(reason)가 필요합니다.");
 
     private final HttpStatus status;
     private final String message;

@@ -16,6 +16,7 @@ import com.commerce.product.repository.ProductVariantRepository;
 import com.commerce.product.service.StockDeductionCommand;
 import com.commerce.product.service.StockDeductionStrategy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderService {
@@ -107,22 +109,62 @@ public class OrderService {
         }
     }
 
+    /**
+     * TX1: 소유자 검증 + PENDING → PAYMENT_IN_PROGRESS + totalAmount 캡처
+     * [외부]: pg.charge() 호출
+     * TX2: pgTransactionId 저장
+     * TX3: confirmPayment() — 재고 확정 + PAID
+     *   └ 실패 시: PAYMENT_IN_PROGRESS 유지 (예외 삼킴, 스케줄러가 처리)
+     */
     public OrderResponse pay(Long memberId, Long orderId) {
-        // 1. 검증 (트랜잭션 없음)
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
-        if (!order.getMemberId().equals(memberId)) {
-            throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
-        }
-        if (order.getStatus() != OrderStatus.PENDING) {
-            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        // TX1: 소유자 검증 + PENDING → PAYMENT_IN_PROGRESS + totalAmount 캡처
+        long capturedAmount = transactionTemplate.execute(status -> {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+            if (!order.getMemberId().equals(memberId)) {
+                throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
+            }
+            order.startPayment();
+            return order.getTotalAmount();
+        });
+
+        // [외부]: pg.charge() 호출 (트랜잭션 없음)
+        PaymentResult pgResult;
+        try {
+            pgResult = paymentGateway.charge(orderId, capturedAmount);
+        } catch (PgChargeException e) {
+            // pg.charge 자체 실패 → 재고 해제 + CANCELLED
+            transactionTemplate.executeWithoutResult(status -> {
+                Order order = orderRepository.findByIdWithItems(orderId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+                List<StockDeductionCommand> commands = order.getItems().stream()
+                        .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                        .toList();
+                order.cancelByPgFailure();
+                stockDeductionStrategy.release(commands);
+            });
+            throw new BusinessException(ErrorCode.PAYMENT_GATEWAY_ERROR);
         }
 
-        // 2. 외부 PG API 호출 (트랜잭션 없음)
-        paymentGateway.charge(orderId, order.getTotalAmount());
+        // TX2: pgTransactionId 저장
+        final String pgTransactionId = pgResult.transactionId();
+        transactionTemplate.executeWithoutResult(status -> {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+            order.savePgTransactionId(pgTransactionId);
+        });
 
-        // 3. 결제 확정
-        return confirmPayment(orderId);
+        // TX3: confirmPayment() — 재고 확정 + PAID
+        // 실패 시 예외 삼킴 (스케줄러가 처리)
+        try {
+            return confirmPayment(orderId);
+        } catch (Exception e) {
+            log.warn("confirmPayment 실패 — 스케줄러가 재시도합니다. orderId={}", orderId, e);
+            // PAYMENT_IN_PROGRESS 유지, 현재 상태 반환
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+            return OrderResponse.from(order);
+        }
     }
 
     public OrderResponse confirmPayment(Long orderId) {
@@ -146,13 +188,14 @@ public class OrderService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
         if (order.getStatus() == OrderStatus.PAID) {
-            return OrderResponse.from(order);
+            return OrderResponse.from(order); // 멱등 return
         }
-        if (order.getStatus() != OrderStatus.PENDING) {
+        if (order.getStatus() != OrderStatus.PAYMENT_IN_PROGRESS
+                && order.getStatus() != OrderStatus.PAYMENT_FAILED) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
 
-        order.pay();
+        order.confirmPaid();
 
         List<StockDeductionCommand> commands = order.getItems().stream()
                 .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
