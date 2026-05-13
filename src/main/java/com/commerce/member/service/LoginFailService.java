@@ -1,9 +1,5 @@
 package com.commerce.member.service;
 
-import com.commerce.global.exception.BusinessException;
-import com.commerce.global.exception.ErrorCode;
-import com.commerce.member.domain.Member;
-import com.commerce.member.domain.MemberStatus;
 import com.commerce.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,13 +14,9 @@ public class LoginFailService {
 
     private final MemberRepository memberRepository;
 
+    // REQUIRES_NEW: 외부 로그인 트랜잭션이 롤백되더라도 실패 횟수는 반드시 DB에 반영되어야 함
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordLoginFail(Long memberId) {
-        memberRepository.incrementLoginFailCount(memberId);
-        Member member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID));
-        if (member.getLoginFailCount() >= MAX_LOGIN_FAIL_COUNT) {
-            memberRepository.updateStatus(memberId, MemberStatus.LOCKED);
-        }
+        memberRepository.incrementFailCountAndLockIfNeeded(memberId, MAX_LOGIN_FAIL_COUNT);
     }
 }

@@ -10,8 +10,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-
 @Service
 @RequiredArgsConstructor
 public class MemberService {
@@ -21,16 +19,19 @@ public class MemberService {
 
     @Transactional
     public void withdraw(Long memberId) {
+        // 멤버 조회
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
 
+        // 멤버 상태 조회
         if (member.getStatus() == MemberStatus.DELETED) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND);
         }
 
-        String deletedEmail = member.getEmail() + "_deleted_" + Instant.now().toEpochMilli();
-        member.withdraw(deletedEmail);
+        // 멤버 탈퇴 반영
+        member.withdraw();
 
+        // 리프레시 토큰 제거
         refreshTokenRepository.deleteByMemberId(memberId);
     }
 }

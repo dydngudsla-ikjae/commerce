@@ -8,6 +8,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -66,20 +67,14 @@ public class Member {
         return this.status == MemberStatus.ACTIVE;
     }
 
-    // @Modifying 쿼리 대신 엔티티 업데이트를 사용하는 이유:
-    // login() 트랜잭션 안에서 @Modifying을 쓰면 member 행에 UPDATE 락이 걸린 채로
-    // REQUIRES_NEW(lastLoginUpdateService)가 같은 행을 UPDATE하려다 데드락이 발생한다.
-    public void onLoginSuccess() {
+    public void onLoginSuccess(LocalDateTime loginAt) {
         this.loginFailCount = 0;
-    }
-
-    public void updateLastLoginAt(LocalDateTime loginAt) {
         this.lastLoginAt = loginAt;
     }
 
-    public void withdraw(String deletedEmail) {
+    public void withdraw() {
         this.status = MemberStatus.DELETED;
-        this.email = deletedEmail;
+        this.email = this.email + "_deleted_" + Instant.now().toEpochMilli();
         this.name = "탈퇴 사용자";
     }
 }

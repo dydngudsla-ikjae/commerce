@@ -32,10 +32,10 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final LoginFailService loginFailService;
-    private final LastLoginUpdateService lastLoginUpdateService;
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
+        // 이메일 대소문자 정규화: DB 유니크 제약만으로는 대소문자 중복을 막지 못함
         String email = request.getEmail().toLowerCase();
         if (memberRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.MEMBER_ALREADY_EXISTS);
@@ -61,7 +61,8 @@ public class AuthService {
             throw new BusinessException(ErrorCode.AUTH_INVALID);
         }
 
-        member.onLoginSuccess();
+        LocalDateTime loginTime = LocalDateTime.now();
+        member.onLoginSuccess(loginTime);
 
         String accessToken = jwtProvider.generateAccessToken(member.getId(), member.getRole().name());
         String refreshTokenStr = jwtProvider.generateRefreshToken(member.getId());
@@ -69,19 +70,11 @@ public class AuthService {
         LocalDateTime expiresAt = LocalDateTime.now()
                 .plusSeconds(jwtProvider.getRefreshExpirationMs() / 1000);
 
+        // 리프레시 토큰 교체(rotation): 기존 토큰 삭제 후 신규 발급 → 탈취된 이전 토큰 무효화
         refreshTokenRepository.deleteByMemberId(member.getId());
         refreshTokenRepository.save(RefreshToken.create(member.getId(), refreshTokenStr, expiresAt));
 
-        LocalDateTime loginTime = LocalDateTime.now();
-        LocalDateTime lastLoginAt = null;
-        try {
-            lastLoginUpdateService.updateLastLoginAt(member.getId(), loginTime);
-            lastLoginAt = loginTime;
-        } catch (Exception e) {
-            // last_login_at 업데이트 실패해도 로그인은 성공 처리
-        }
-
-        return new LoginResponse(accessToken, refreshTokenStr, lastLoginAt);
+        return new LoginResponse(accessToken, refreshTokenStr, loginTime);
     }
 
     @Transactional
@@ -124,6 +117,7 @@ public class AuthService {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
 
+        // 사용된 리프레시 토큰 즉시 삭제 후 새 토큰 발급 (1회용 rotation)
         refreshTokenRepository.delete(storedToken);
 
         String newAccessToken = jwtProvider.generateAccessToken(member.getId(), member.getRole().name());
