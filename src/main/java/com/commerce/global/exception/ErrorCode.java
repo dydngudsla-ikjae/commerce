@@ -30,7 +30,8 @@ public enum ErrorCode {
 
     PAYMENT_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY, "결제 게이트웨이 오류가 발생했습니다."),
     PAYMENT_VERIFY_REQUIRED(HttpStatus.BAD_REQUEST, "결제 검증이 필요합니다."),
-    PAYMENT_VERIFY_MISMATCH(HttpStatus.BAD_REQUEST, "결제 검증 상태가 일치하지 않습니다.");
+    PAYMENT_VERIFY_MISMATCH(HttpStatus.BAD_REQUEST, "결제 검증 상태가 일치하지 않습니다."),
+    REFUND_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY, "환불 처리 중 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String message;

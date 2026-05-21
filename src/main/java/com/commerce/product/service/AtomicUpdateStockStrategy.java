@@ -11,6 +11,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+// SQL WHERE 조건으로 재고 차감을 원자적으로 처리 — @Version 낙관적 락 불필요, isRetryable=false
 public class AtomicUpdateStockStrategy implements StockDeductionStrategy {
 
     private final ProductVariantRepository productVariantRepository;
@@ -39,6 +40,13 @@ public class AtomicUpdateStockStrategy implements StockDeductionStrategy {
         commands.stream()
                 .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
                 .forEach(cmd -> productVariantRepository.confirmStock(cmd.variantId(), cmd.quantity()));
+    }
+
+    @Override
+    public void refund(List<StockDeductionCommand> commands) {
+        commands.stream()
+                .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
+                .forEach(cmd -> productVariantRepository.refundStock(cmd.variantId(), cmd.quantity()));
     }
 
     @Override

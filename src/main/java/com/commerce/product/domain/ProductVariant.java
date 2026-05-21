@@ -42,6 +42,7 @@ public class ProductVariant {
     @Column(nullable = false)
     private VariantStatus status;
 
+    // 낙관적 락: 동시 재고 변경 충돌 감지. StockDeductionStrategy 재시도 루프와 함께 사용.
     @Version
     @Column(nullable = false)
     private Long version;
@@ -67,6 +68,7 @@ public class ProductVariant {
         return variant;
     }
 
+    // 실제 판매 가능 수량 = 전체 재고 - 결제 중 예약된 수량
     public int getAvailableStock() {
         return this.stock - this.reservedStock;
     }
@@ -91,6 +93,7 @@ public class ProductVariant {
         }
     }
 
+    // 결제 완료: 예약 → 실제 차감. stock과 reservedStock을 동시에 감소시켜 availableStock 불변.
     public void confirm(int quantity) {
         if (this.reservedStock < quantity || this.stock < quantity) {
             throw new BusinessException(ErrorCode.OUT_OF_STOCK);
@@ -115,5 +118,14 @@ public class ProductVariant {
         }
         this.stock -= quantity;
         this.status = getAvailableStock() > 0 ? VariantStatus.ON_SALE : VariantStatus.SOLD_OUT;
+    }
+
+    // confirm()의 역방향: 결제 취소 시 실제 차감됐던 재고를 복구
+    // STOPPED 상태는 관리자가 명시적으로 판매 중단한 것이므로 ON_SALE로 전환하지 않음
+    public void refund(int quantity) {
+        this.stock += quantity;
+        if (this.status == VariantStatus.SOLD_OUT && getAvailableStock() > 0) {
+            this.status = VariantStatus.ON_SALE;
+        }
     }
 }

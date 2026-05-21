@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderService {
 
+    // 낙관적 락 충돌(OptimisticLockingFailureException) 시 지수 백오프 재시도
     private static final int MAX_RETRIES = 3;
     private static final long INITIAL_DELAY_MS = 100L;
     private static final double MULTIPLIER = 2.0;
@@ -61,6 +62,7 @@ public class OrderService {
     }
 
     private OrderResponse doCreateOrder(Long memberId, CreateOrderRequest request) {
+        // fetch join으로 product 한 번에 조회 (N+1 방지)
         List<Long> variantIds = request.items().stream()
                 .map(item -> item.variantId())
                 .toList();
@@ -84,6 +86,7 @@ public class OrderService {
         List<StockDeductionCommand> commands = request.items().stream()
                 .map(item -> new StockDeductionCommand(item.variantId(), item.quantity()))
                 .toList();
+        // 재고 예약 → Order 저장 순서. 반대로 하면 재고 예약 실패 시 이미 저장된 주문이 남는다.
         stockDeductionStrategy.reserve(commands);
 
         Order order = Order.create(memberId, totalAmount);
@@ -101,6 +104,7 @@ public class OrderService {
 
     private void applyBackoff(int attempt) {
         long base = (long) (INITIAL_DELAY_MS * Math.pow(MULTIPLIER, attempt));
+        // jitter: 동시 충돌한 스레드들이 같은 간격으로 재시도하면 계속 충돌하므로 무작위 편차 추가
         long jitter = (long) (Math.random() * base);
         try {
             Thread.sleep(base + jitter);
@@ -192,8 +196,9 @@ public class OrderService {
         Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
+        // 이미 PAID 면 재고 confirm 없이 즉시 반환 — 스케줄러 중복 호출 안전
         if (order.getStatus() == OrderStatus.PAID) {
-            return OrderResponse.from(order); // 멱등 return
+            return OrderResponse.from(order);
         }
         if (order.getStatus() != OrderStatus.PAYMENT_IN_PROGRESS
                 && order.getStatus() != OrderStatus.PAYMENT_FAILED) {
@@ -211,6 +216,16 @@ public class OrderService {
     }
 
     public OrderResponse cancel(Long memberId, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+        if (!order.getMemberId().equals(memberId)) {
+            throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+
+        if (order.getStatus() == OrderStatus.PAID) {
+            return cancelPaid(orderId, order.getPgTransactionId());
+        }
+
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 return transactionTemplate.execute(status -> doCancel(memberId, orderId));
@@ -244,6 +259,52 @@ public class OrderService {
         return OrderResponse.from(order);
     }
 
+    /**
+     * TX1: 소유자 검증 + PAID 확인 (상태 변경 없음)
+     * [외부]: pg.refund() 호출 — 실패 시 REFUND_GATEWAY_ERROR, 상태 변경 없음
+     * TX2: PAID → CANCELLED + 재고 복구 (refund)
+     */
+    private OrderResponse cancelPaid(Long orderId, String pgTransactionId) {
+        try {
+            paymentGateway.refund(orderId, pgTransactionId);
+        } catch (Exception e) {
+            log.error("pg.refund() 실패 — 환불 불가. orderId={}", orderId, e);
+            throw new BusinessException(ErrorCode.REFUND_GATEWAY_ERROR);
+        }
+
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                return transactionTemplate.execute(status -> doCancelPaid(orderId));
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e)) {
+                    throw e;
+                }
+                if (attempt < MAX_RETRIES - 1) {
+                    applyBackoff(attempt);
+                }
+            }
+        }
+        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+    }
+
+    private OrderResponse doCancelPaid(Long orderId) {
+        Order order = orderRepository.findByIdWithItems(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            return OrderResponse.from(order);
+        }
+
+        order.cancelAfterPayment();
+
+        List<StockDeductionCommand> commands = order.getItems().stream()
+                .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                .toList();
+        stockDeductionStrategy.refund(commands);
+
+        return OrderResponse.from(order);
+    }
+
     public void expireOrder(Long orderId) {
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
@@ -265,6 +326,7 @@ public class OrderService {
         Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
+        // 스케줄러가 조회 후 상태가 이미 바뀐 경우(사용자가 직전에 결제/취소) 조용히 스킵
         if (order.getStatus() != OrderStatus.PENDING) {
             return;
         }

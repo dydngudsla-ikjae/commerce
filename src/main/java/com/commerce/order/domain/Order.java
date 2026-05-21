@@ -32,6 +32,7 @@ public class Order {
     @Column(nullable = false)
     private OrderStatus status;
 
+    // 낙관적 락: 동시 상태 변경 충돌 감지. OrderService 에서 재시도 루프와 함께 사용.
     @Version
     @Column(nullable = false)
     private Long version;
@@ -39,12 +40,15 @@ public class Order {
     @Column(nullable = false)
     private long totalAmount;
 
+    // PG 청구 성공 시 저장. NULL이면 charge() 자체가 실패한 것이므로 스케줄러 재시도 대상에서 제외.
     @Column(name = "pg_transaction_id")
     private String pgTransactionId;
 
+    // PaymentRetryScheduler가 MAX_RETRY_COUNT 도달 여부 판단에 사용
     @Column(name = "retry_count", nullable = false)
     private int retryCount = 0;
 
+    // 마지막 재시도 시각. NULL이면 updatedAt 기준으로 threshold를 비교 (OrderRepository 쿼리 참조)
     @Column(name = "last_retry_at")
     private LocalDateTime lastRetryAt;
 
@@ -79,9 +83,11 @@ public class Order {
     }
 
     public void confirmPaid() {
+        // 이미 PAID 면 멱등 처리 — 스케줄러와 webhook이 동시에 호출해도 안전
         if (this.status == OrderStatus.PAID) {
             return;
         }
+        // PAYMENT_FAILED 도 허용: 관리자 forceConfirm 경로
         if (this.status != OrderStatus.PAYMENT_IN_PROGRESS && this.status != OrderStatus.PAYMENT_FAILED) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
@@ -116,6 +122,13 @@ public class Order {
 
     public void cancel() {
         if (this.status != OrderStatus.PENDING) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
+        this.status = OrderStatus.CANCELLED;
+    }
+
+    public void cancelAfterPayment() {
+        if (this.status != OrderStatus.PAID) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
         this.status = OrderStatus.CANCELLED;

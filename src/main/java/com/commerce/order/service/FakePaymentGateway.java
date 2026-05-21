@@ -13,6 +13,7 @@ public class FakePaymentGateway implements PaymentGateway {
 
     private final ConcurrentHashMap<Long, PaymentResult> processed = new ConcurrentHashMap<>();
     private final AtomicBoolean chargeWillFail = new AtomicBoolean(false);
+    private final AtomicBoolean refundWillFail = new AtomicBoolean(false);
     private final ConcurrentHashMap<Long, PgPaymentStatus> queryOverrides = new ConcurrentHashMap<>();
 
     @Override
@@ -33,10 +34,22 @@ public class FakePaymentGateway implements PaymentGateway {
         return processed.containsKey(orderId) ? PgPaymentStatus.SUCCESS : PgPaymentStatus.UNKNOWN;
     }
 
+    @Override
+    public void refund(Long orderId, String pgTransactionId) {
+        if (refundWillFail.get()) {
+            throw new RuntimeException("FakePaymentGateway: refund will fail (test flag set)");
+        }
+        processed.remove(orderId);
+    }
+
     // ==================== 테스트 제어 메서드 ====================
 
     public void setChargeWillFail(boolean fail) {
         chargeWillFail.set(fail);
+    }
+
+    public void setRefundWillFail(boolean fail) {
+        refundWillFail.set(fail);
     }
 
     public void setQueryResult(Long orderId, PgPaymentStatus status) {
@@ -46,6 +59,7 @@ public class FakePaymentGateway implements PaymentGateway {
     public void reset() {
         processed.clear();
         chargeWillFail.set(false);
+        refundWillFail.set(false);
         queryOverrides.clear();
     }
 }

@@ -21,6 +21,7 @@ public class OptimisticLockStockStrategy implements StockDeductionStrategy {
 
     @Override
     public void reserve(List<StockDeductionCommand> commands) {
+        // variantId 오름차순 정렬: 여러 스레드가 동일 순서로 락을 잡아 데드락 방지
         commands.stream()
                 .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
                 .forEach(cmd -> {
@@ -49,6 +50,17 @@ public class OptimisticLockStockStrategy implements StockDeductionStrategy {
                     ProductVariant variant = productVariantRepository.findById(cmd.variantId())
                             .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
                     variant.confirm(cmd.quantity());
+                });
+    }
+
+    @Override
+    public void refund(List<StockDeductionCommand> commands) {
+        commands.stream()
+                .sorted(Comparator.comparingLong(StockDeductionCommand::variantId))
+                .forEach(cmd -> {
+                    ProductVariant variant = productVariantRepository.findById(cmd.variantId())
+                            .orElseThrow(() -> new BusinessException(ErrorCode.VARIANT_NOT_FOUND));
+                    variant.refund(cmd.quantity());
                 });
     }
 
