@@ -1087,6 +1087,93 @@ class OrderControllerTest {
         ).isInstanceOf(HttpClientErrorException.Unauthorized.class);
     }
 
+    @Test
+    @DisplayName("주문 생성 API가 재고 충분 시 동시 주문 N건을 모두 성공시키고 재고를 정확히 N만큼 차감한다")
+    void createOrder_all_succeed_when_stock_is_sufficient_under_concurrent_requests() throws InterruptedException {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 5);
+
+        int threadCount = 5;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger();
+
+        for (int i = 0; i < threadCount; i++) {
+            long memberId = i + 1L;
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    var body = Map.of("items", List.of(Map.of("variantId", variantId, "quantity", 1)));
+                    client.post()
+                            .uri("/api/v1/orders")
+                            .header("Authorization", "Bearer " + customerToken(memberId))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(body)
+                            .retrieve()
+                            .toBodilessEntity();
+                    successCount.incrementAndGet();
+                } catch (Exception e) {
+                    // 실패는 카운트하지 않음
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(successCount.get()).isEqualTo(5);
+        assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("취소 API가 PAID 주문 동시 취소 요청에서 재고를 정확히 1회 복구한다")
+    void cancelPaid_restores_stock_exactly_once_under_concurrent_requests() throws InterruptedException {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 1);
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/pay")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        int threadCount = 5;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    client.post()
+                            .uri("/api/v1/orders/" + orderId + "/cancel")
+                            .header("Authorization", "Bearer " + customerToken(1L))
+                            .retrieve()
+                            .toBodilessEntity();
+                } catch (Exception e) {
+                    // 오류(4xx/5xx) 발생해도 무시
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        doneLatch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(orderRepository.findById(orderId).get().getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(1);
+    }
+
     // ==================== 주문 목록 조회 API ====================
 
     @Test
