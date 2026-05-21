@@ -309,7 +309,120 @@ class ProductControllerTest {
         ).isInstanceOf(HttpClientErrorException.Forbidden.class);
     }
 
+    @Test
+    @DisplayName("상품 생성 API가 imageUrl을 저장하고 응답에 포함한다")
+    void createProductWithImageUrl() {
+        Long categoryId = createCategory("의류");
+
+        var body = Map.of("name", "티셔츠", "categoryId", categoryId, "imageUrl", "https://cdn.example.com/tshirt.jpg");
+
+        var response = client.post()
+                .uri("/api/v1/admin/products")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toEntity(ProductResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().imageUrl()).isEqualTo("https://cdn.example.com/tshirt.jpg");
+    }
+
+    @Test
+    @DisplayName("상품 생성 API가 imageUrl 없이도 상품을 등록한다 (nullable)")
+    void createProductWithoutImageUrl() {
+        Long categoryId = createCategory("의류");
+
+        var body = Map.of("name", "티셔츠", "categoryId", categoryId);
+
+        var response = client.post()
+                .uri("/api/v1/admin/products")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toEntity(ProductResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().imageUrl()).isNull();
+    }
+
     // ==================== 상품 목록 조회 ====================
+
+    @Test
+    @DisplayName("상품 목록 API가 keyword로 상품명 부분 일치 검색한다")
+    void getProductsFilterByKeyword() {
+        Long categoryId = createCategory("의류");
+        createProduct("화이트 티셔츠", categoryId);
+        createProduct("블랙 후드티", categoryId);
+
+        var response = client.get()
+                .uri("/api/v1/products?keyword=티셔츠")
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<ProductResponse>>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).hasSize(1);
+        assertThat(response.getBody().content().get(0).name()).isEqualTo("화이트 티셔츠");
+    }
+
+    @Test
+    @DisplayName("상품 목록 API가 keyword가 없으면 전체 상품을 반환한다")
+    void getProductsWithoutKeywordReturnsAll() {
+        Long categoryId = createCategory("의류");
+        createProduct("화이트 티셔츠", categoryId);
+        createProduct("블랙 후드티", categoryId);
+
+        var response = client.get()
+                .uri("/api/v1/products")
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<ProductResponse>>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("상품 목록 API가 keyword와 categoryId를 AND 조건으로 함께 필터링한다")
+    void getProductsFilterByKeywordAndCategoryId() {
+        Long catA = createCategory("카테고리A");
+        Long catB = createCategory("카테고리B");
+        createProduct("화이트 티셔츠", catA);
+        createProduct("블랙 티셔츠", catB);
+
+        var response = client.get()
+                .uri("/api/v1/products?keyword=티셔츠&categoryId=" + catA)
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<ProductResponse>>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).hasSize(1);
+        assertThat(response.getBody().content().get(0).name()).isEqualTo("화이트 티셔츠");
+    }
+
+    @Test
+    @DisplayName("상품 목록 API가 응답에 imageUrl을 포함한다")
+    void getProductsResponseIncludesImageUrl() {
+        Long categoryId = createCategory("의류");
+
+        var body = Map.of("name", "티셔츠", "categoryId", categoryId, "imageUrl", "https://cdn.example.com/tshirt.jpg");
+        client.post()
+                .uri("/api/v1/admin/products")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+
+        var response = client.get()
+                .uri("/api/v1/products")
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<PageResponse<ProductResponse>>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).hasSize(1);
+        assertThat(response.getBody().content().get(0).imageUrl()).isEqualTo("https://cdn.example.com/tshirt.jpg");
+    }
 
     @Test
     @DisplayName("상품 목록 API가 상품이 없으면 빈 배열을 반환한다")
@@ -564,7 +677,59 @@ class ProductControllerTest {
         assertThat(ex.getResponseBodyAsString()).contains("PRODUCT_NOT_FOUND");
     }
 
+    @Test
+    @DisplayName("상품 상세 API가 응답에 imageUrl을 포함한다")
+    void getProductDetailResponseIncludesImageUrl() {
+        Long categoryId = createCategory("의류");
+
+        var createBody = Map.of("name", "티셔츠", "categoryId", categoryId, "imageUrl", "https://cdn.example.com/tshirt.jpg");
+        var createResponse = client.post()
+                .uri("/api/v1/admin/products")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(createBody)
+                .retrieve()
+                .toEntity(ProductResponse.class);
+        Long productId = createResponse.getBody().id();
+
+        var response = client.get()
+                .uri("/api/v1/products/" + productId)
+                .retrieve()
+                .toEntity(ProductDetailResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().imageUrl()).isEqualTo("https://cdn.example.com/tshirt.jpg");
+    }
+
     // ==================== 상품 수정 ====================
+
+    @Test
+    @DisplayName("상품 수정 API가 imageUrl을 수정하고 응답에 포함한다")
+    void updateProductImageUrl() {
+        Long categoryId = createCategory("의류");
+
+        var createBody = Map.of("name", "티셔츠", "categoryId", categoryId, "imageUrl", "old.jpg");
+        var createResponse = client.post()
+                .uri("/api/v1/admin/products")
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(createBody)
+                .retrieve()
+                .toEntity(ProductResponse.class);
+        Long productId = createResponse.getBody().id();
+
+        var updateBody = Map.of("name", "티셔츠", "status", "ON_SALE", "categoryId", categoryId, "imageUrl", "new.jpg");
+        var response = client.put()
+                .uri("/api/v1/admin/products/" + productId)
+                .header("Authorization", "Bearer " + createAdminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(updateBody)
+                .retrieve()
+                .toEntity(ProductResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().imageUrl()).isEqualTo("new.jpg");
+    }
 
     @Test
     @DisplayName("상품 수정 API가 name, description, status, category_id를 수정한다")
