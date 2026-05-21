@@ -223,7 +223,7 @@ public class OrderService {
         }
 
         if (order.getStatus() == OrderStatus.PAID) {
-            return cancelPaid(orderId, order.getPgTransactionId());
+            return cancelPaid(memberId, orderId);
         }
 
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -260,21 +260,39 @@ public class OrderService {
     }
 
     /**
-     * TX1: 소유자 검증 + PAID 확인 (상태 변경 없음)
-     * [외부]: pg.refund() 호출 — 실패 시 REFUND_GATEWAY_ERROR, 상태 변경 없음
-     * TX2: PAID → CANCELLED + 재고 복구 (refund)
+     * TX1: 소유자 검증 + PAID → CANCEL_IN_PROGRESS (선점, @Version으로 1건만 성공)
+     * [외부]: pg.refund() 호출 — 실패 시 REFUND_GATEWAY_ERROR, CANCEL_IN_PROGRESS 유지
+     * TX2: CANCEL_IN_PROGRESS → CANCELLED + 재고 복구
+     *   └ 실패 시: CANCEL_IN_PROGRESS 유지 (CancelRetryScheduler가 재시도)
      */
-    private OrderResponse cancelPaid(Long orderId, String pgTransactionId) {
+    private OrderResponse cancelPaid(Long memberId, Long orderId) {
+        // TX1: PAID → CANCEL_IN_PROGRESS 선점
+        String pgTransactionId = transactionTemplate.execute(status -> {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+            if (!order.getMemberId().equals(memberId)) {
+                throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
+            }
+            order.startCancellation(); // PAID 아니면 ORDER_INVALID_STATUS
+            return order.getPgTransactionId();
+        });
+
+        // [외부]: pg.refund() — 실패 시 CANCEL_IN_PROGRESS 유지, 스케줄러가 재시도
         try {
             paymentGateway.refund(orderId, pgTransactionId);
         } catch (Exception e) {
-            log.error("pg.refund() 실패 — 환불 불가. orderId={}", orderId, e);
+            log.error("pg.refund() 실패 — CancelRetryScheduler가 재시도합니다. orderId={}", orderId, e);
             throw new BusinessException(ErrorCode.REFUND_GATEWAY_ERROR);
         }
 
+        // TX2: CANCEL_IN_PROGRESS → CANCELLED + 재고 복구
+        return completeCancel(orderId);
+    }
+
+    public OrderResponse completeCancel(Long orderId) {
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
-                return transactionTemplate.execute(status -> doCancelPaid(orderId));
+                return transactionTemplate.execute(status -> doCompleteCancel(orderId));
             } catch (RuntimeException e) {
                 if (!stockDeductionStrategy.isRetryable(e)) {
                     throw e;
@@ -287,15 +305,16 @@ public class OrderService {
         throw new BusinessException(ErrorCode.OUT_OF_STOCK);
     }
 
-    private OrderResponse doCancelPaid(Long orderId) {
+    private OrderResponse doCompleteCancel(Long orderId) {
         Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
+        // 이미 CANCELLED면 재고 복구 없이 즉시 반환 — 스케줄러 중복 호출 안전
         if (order.getStatus() == OrderStatus.CANCELLED) {
             return OrderResponse.from(order);
         }
 
-        order.cancelAfterPayment();
+        order.completeCancel(); // CANCEL_IN_PROGRESS → CANCELLED
 
         List<StockDeductionCommand> commands = order.getItems().stream()
                 .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))

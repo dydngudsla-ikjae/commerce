@@ -127,8 +127,18 @@ public class Order {
         this.status = OrderStatus.CANCELLED;
     }
 
-    public void cancelAfterPayment() {
+    public void startCancellation() {
         if (this.status != OrderStatus.PAID) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
+        this.status = OrderStatus.CANCEL_IN_PROGRESS;
+    }
+
+    public void completeCancel() {
+        if (this.status == OrderStatus.CANCELLED) {
+            return; // 멱등 — 스케줄러 중복 호출 안전
+        }
+        if (this.status != OrderStatus.CANCEL_IN_PROGRESS) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
         this.status = OrderStatus.CANCELLED;

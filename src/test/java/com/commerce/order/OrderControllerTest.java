@@ -980,7 +980,7 @@ class OrderControllerTest {
     }
 
     @Test
-    @DisplayName("취소 API가 PAID 주문 취소 시 PG 환불 실패하면 주문 상태를 유지한다 (502, REFUND_GATEWAY_ERROR)")
+    @DisplayName("취소 API가 PAID 주문 취소 시 PG 환불 실패하면 CANCEL_IN_PROGRESS를 유지한다 (502, REFUND_GATEWAY_ERROR)")
     void cancelPaidOrderWithRefundFailureKeepsOrderStatus() {
         Long categoryId = createCategory("의류");
         Long productId = createProduct("티셔츠", categoryId);
@@ -1007,7 +1007,8 @@ class OrderControllerTest {
         assertThat(ex.getStatusCode().value()).isEqualTo(502);
         assertThat(ex.getResponseBodyAsString()).contains("REFUND_GATEWAY_ERROR");
 
-        assertThat(orderRepository.findById(orderId).get().getStatus()).isEqualTo(OrderStatus.PAID);
+        // 환불 실패 → CANCEL_IN_PROGRESS 유지 (CancelRetryScheduler가 재시도)
+        assertThat(orderRepository.findById(orderId).get().getStatus()).isEqualTo(OrderStatus.CANCEL_IN_PROGRESS);
     }
 
     @Test

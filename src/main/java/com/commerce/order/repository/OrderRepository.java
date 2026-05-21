@@ -24,6 +24,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.status = :status AND o.createdAt < :threshold")
     List<Order> findByStatusAndCreatedAtBefore(@Param("status") OrderStatus status, @Param("threshold") LocalDateTime threshold);
 
+    // 환불 재시도용: CANCEL_IN_PROGRESS 상태로 threshold 이상 머문 주문
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.status = :status AND o.updatedAt < :threshold")
+    List<Order> findCancelInProgressOrdersBefore(
+            @Param("status") OrderStatus status,
+            @Param("threshold") LocalDateTime threshold);
+
     // pgTransactionId IS NOT NULL: charge()는 성공했지만 confirmPayment()가 실패한 주문만 재시도
     // lastRetryAt IS NULL → 첫 재시도: updatedAt 기준(startPayment 시각)으로 interval 판단
     @Query("""
