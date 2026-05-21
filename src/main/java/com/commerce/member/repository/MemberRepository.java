@@ -1,6 +1,7 @@
 package com.commerce.member.repository;
 
 import com.commerce.member.domain.Member;
+import com.commerce.member.domain.MemberStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -20,4 +21,8 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
             WHERE id = :id
             """, nativeQuery = true)
     void incrementFailCountAndLockIfNeeded(@Param("id") Long id, @Param("maxFailCount") int maxFailCount);
+
+    @Modifying
+    @Query("UPDATE Member m SET m.status = :status WHERE m.id = :id")
+    void updateStatus(@Param("id") Long id, @Param("status") MemberStatus status);
 }

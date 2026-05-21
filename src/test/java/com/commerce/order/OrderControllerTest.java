@@ -874,32 +874,140 @@ class OrderControllerTest {
     }
 
     @Test
-    @DisplayName("취소 API가 PAID 주문 취소 요청을 거부한다 (400, ORDER_INVALID_STATUS)")
-    void cancelPaidOrderReturns400() {
+    @DisplayName("취소 API가 PAID 주문을 CANCELLED로 전이한다")
+    void cancelPaidOrderChangesPaidToCancelled() {
         Long categoryId = createCategory("의류");
         Long productId = createProduct("티셔츠", categoryId);
         Long variantId = createVariant(productId, 10000L, 10);
         Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
 
-        // 결제
         client.post()
                 .uri("/api/v1/orders/" + orderId + "/pay")
                 .header("Authorization", "Bearer " + customerToken(1L))
                 .retrieve()
                 .toBodilessEntity();
 
-        // 취소 시도
+        var response = client.post()
+                .uri("/api/v1/orders/" + orderId + "/cancel")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toEntity(OrderResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().status()).isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("취소 API가 PAID 주문 취소 시 OrderItem 수량만큼 재고를 복구한다")
+    void cancelPaidOrderRestoresStock() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 3)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/pay")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/cancel")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("취소 API가 PAID 주문 취소 시 SOLD_OUT 상태의 Variant를 ON_SALE로 전환한다")
+    void cancelPaidOrderTransitionsSoldOutVariantToOnSale() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 1);
+
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/pay")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/cancel")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(productVariantRepository.findById(variantId).get().getStatus())
+                .isEqualTo(VariantStatus.ON_SALE);
+    }
+
+    @Test
+    @DisplayName("취소 API가 PAID 주문 취소 시 STOPPED 상태 Variant 재고를 복구해도 ON_SALE로 전환하지 않는다")
+    void cancelPaidOrderDoesNotTransitionStoppedVariantToOnSale() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 3)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/pay")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        // Variant를 STOPPED로 전환
+        client.put()
+                .uri("/api/v1/admin/variants/" + variantId)
+                .header("Authorization", "Bearer " + adminToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("price", 10000L, "status", "STOPPED"))
+                .retrieve()
+                .toBodilessEntity();
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/cancel")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(productVariantRepository.findById(variantId).get().getStatus())
+                .isEqualTo(VariantStatus.STOPPED);
+    }
+
+    @Test
+    @DisplayName("취소 API가 PAID 주문 취소 시 PG 환불 실패하면 주문 상태를 유지한다 (502, REFUND_GATEWAY_ERROR)")
+    void cancelPaidOrderWithRefundFailureKeepsOrderStatus() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 10);
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/pay")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        fakePaymentGateway.setRefundWillFail(true);
+
         var ex = catchThrowableOfType(
                 () -> client.post()
                         .uri("/api/v1/orders/" + orderId + "/cancel")
                         .header("Authorization", "Bearer " + customerToken(1L))
                         .retrieve()
                         .toBodilessEntity(),
-                HttpClientErrorException.BadRequest.class
+                HttpServerErrorException.class
         );
 
-        assertThat(ex).isNotNull();
-        assertThat(ex.getResponseBodyAsString()).contains("ORDER_INVALID_STATUS");
+        assertThat(ex.getStatusCode().value()).isEqualTo(502);
+        assertThat(ex.getResponseBodyAsString()).contains("REFUND_GATEWAY_ERROR");
+
+        assertThat(orderRepository.findById(orderId).get().getStatus()).isEqualTo(OrderStatus.PAID);
     }
 
     @Test
