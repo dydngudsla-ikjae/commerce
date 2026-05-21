@@ -29,6 +29,9 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "image_url")
+    private String imageUrl;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
@@ -54,19 +57,21 @@ public class Product {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
-    public static Product create(String name, String description, Category category) {
+    public static Product create(String name, String description, String imageUrl, Category category) {
         Product product = new Product();
         product.name = name;
         product.description = description;
+        product.imageUrl = imageUrl;
         product.category = category;
         product.status = ProductStatus.ON_SALE;
         product.deleted = false;
         return product;
     }
 
-    public void update(String name, String description, ProductStatus status, Category category) {
+    public void update(String name, String description, String imageUrl, ProductStatus status, Category category) {
         this.name = name;
         this.description = description;
+        this.imageUrl = imageUrl;
         this.status = status;
         this.category = category;
     }

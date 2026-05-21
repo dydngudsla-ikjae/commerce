@@ -53,12 +53,14 @@ public class ProductController {
     public ResponseEntity<PageResponse<ProductResponse>> getProducts(
             @Parameter(description = "카테고리 ID 필터 (없으면 전체 조회)", example = "1")
             @RequestParam(required = false) Long categoryId,
+            @Parameter(description = "상품명 키워드 검색 (없으면 전체 조회)", example = "티셔츠")
+            @RequestParam(required = false) String keyword,
             @Parameter(description = "페이지 번호 (0부터 시작)", example = "0")
             @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "페이지 크기", example = "20")
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ResponseEntity.ok(productService.getProducts(categoryId, page, size));
+        return ResponseEntity.ok(productService.getProducts(categoryId, keyword, page, size));
     }
 
     @Operation(summary = "상품 상세 조회", description = "상품 정보와 옵션, Variant 목록을 반환합니다. STOPPED/삭제 상품은 404를 반환합니다.")

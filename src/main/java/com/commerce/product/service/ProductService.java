@@ -33,16 +33,16 @@ public class ProductService {
         Category category = categoryRepository.findById(request.categoryId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.CATEGORY_NOT_FOUND));
 
-        Product product = Product.create(request.name(), request.description(), category);
+        Product product = Product.create(request.name(), request.description(), request.imageUrl(), category);
         productRepository.save(product);
 
         return toProductResponse(product);
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProductResponse> getProducts(Long categoryId, int page, int size) {
+    public PageResponse<ProductResponse> getProducts(Long categoryId, String keyword, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Product> result = productRepository.findAllVisible(ProductStatus.ON_SALE, categoryId, pageable);
+        Page<Product> result = productRepository.findAllVisible(ProductStatus.ON_SALE, categoryId, keyword, pageable);
 
         List<ProductResponse> content = result.getContent().stream()
                 .map(this::toProductResponse)
@@ -76,7 +76,7 @@ public class ProductService {
         Category category = categoryRepository.findById(request.categoryId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.CATEGORY_NOT_FOUND));
 
-        product.update(request.name(), request.description(), request.status(), category);
+        product.update(request.name(), request.description(), request.imageUrl(), request.status(), category);
         return toProductResponse(product);
     }
 
@@ -247,7 +247,7 @@ public class ProductService {
 
         return new ProductDetailResponse(
                 product.getId(), product.getName(), product.getDescription(),
-                product.getCategory().getId(), product.getStatus(),
+                product.getImageUrl(), product.getCategory().getId(), product.getStatus(),
                 optionDtos, variantDtos
         );
     }
@@ -255,7 +255,7 @@ public class ProductService {
     private ProductResponse toProductResponse(Product product) {
         return new ProductResponse(
                 product.getId(), product.getName(), product.getDescription(),
-                product.getCategory().getId(), product.getStatus(), product.getCreatedAt()
+                product.getImageUrl(), product.getCategory().getId(), product.getStatus(), product.getCreatedAt()
         );
     }
 }
