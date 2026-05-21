@@ -32,6 +32,7 @@ public class AuditLog {
     @Column
     private String reason;
 
+    // DB 유니크 제약으로 같은 키가 두 번 저장되면 예외 발생 → forceConfirm/forceCancel 이중 실행 방지
     @Column(name = "idempotency_key", unique = true)
     private String idempotencyKey;
 

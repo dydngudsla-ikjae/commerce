@@ -19,7 +19,9 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PaymentRetryScheduler {
 
+    // 마지막 재시도(또는 updatedAt) 로부터 이 간격이 지난 주문만 재시도 대상으로 삼음
     private static final int RETRY_INTERVAL_MINUTES = 5;
+    // 이 횟수를 넘으면 PAYMENT_FAILED 로 전환하고 운영팀 알림 발송
     private static final int MAX_RETRY_COUNT = 10;
 
     private final OrderRepository orderRepository;
@@ -42,6 +44,7 @@ public class PaymentRetryScheduler {
         }
     }
 
+    // 테스트에서 직접 호출하기 위해 public (PaymentRetrySchedulerTest 참조)
     public void processRetry(Order order) {
         Long orderId = order.getId();
 
@@ -63,6 +66,7 @@ public class PaymentRetryScheduler {
         return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
             Order o = orderRepository.findById(orderId)
                     .orElseThrow(() -> new IllegalStateException("Order not found: " + orderId));
+            // confirmPayment 재시도 중 다른 경로(webhook 등)로 이미 PAID/CANCELLED 가 된 경우 스킵
             if (o.getStatus() != OrderStatus.PAYMENT_IN_PROGRESS) {
                 return false;
             }

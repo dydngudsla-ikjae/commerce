@@ -126,7 +126,7 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
 
-        // 중복 옵션 조합 체크
+        // 중복 옵션 조합 체크: DB 유니크 제약 대신 인메모리 비교 — 옵션 조합은 순서 무관 집합 비교라 SQL로 표현하기 어려움
         List<Long> requestedValueIds = request.optionValueIds() != null ? request.optionValueIds() : List.of();
         if (!requestedValueIds.isEmpty()) {
             checkDuplicateVariant(productId, requestedValueIds);
@@ -188,7 +188,7 @@ public class ProductService {
             throw new BusinessException(ErrorCode.OUT_OF_STOCK);
         }
 
-        // 업데이트 후 최신 상태 반환
+        // @Modifying(clearAutomatically=true) 로 1차 캐시가 초기화되므로 findById가 DB 최신값을 반환
         ProductVariant variant = productVariantRepository.findById(variantId).orElseThrow();
         List<String> optionValues = getVariantOptionValues(variantId);
         return new VariantResponse(variant.getId(), variant.getPrice(), variant.getAvailableStock(),

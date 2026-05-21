@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class OrderExpiryScheduler {
 
+    // 결제 없이 PENDING 상태로 이 시간 이상 방치된 주문을 자동 취소 (재고 반환 포함)
     private static final int PENDING_EXPIRY_MINUTES = 30;
 
     private final OrderRepository orderRepository;

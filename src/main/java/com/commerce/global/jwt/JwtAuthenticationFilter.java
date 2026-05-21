@@ -62,7 +62,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
             } catch (JwtException e) {
-                // 응답하지 않고 인증만 실패 처리
+                // 여기서 직접 응답하지 않음 — filterChain을 계속 진행시켜
+                // SecurityConfig의 authenticationEntryPoint가 401 JSON을 반환하도록 위임
                 SecurityContextHolder.clearContext();
             }
         }

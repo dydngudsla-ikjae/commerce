@@ -66,7 +66,7 @@ public class SecurityConfig {
 
                 .exceptionHandling(exceptions -> exceptions
 
-                        // 토큰 없음·만료·서명 오류 등 모든 인증 실패를 TOKEN_INVALID로 통일 (보안 정책)
+                        // 보안 정책: 구체적인 실패 원인(만료/서명 오류 등)을 노출하지 않고 TOKEN_INVALID로 통일
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);

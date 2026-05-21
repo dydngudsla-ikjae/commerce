@@ -49,6 +49,7 @@ public class AdminPaymentService {
         Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
+        // AuditLog.idempotencyKey 유니크 제약이 이중 저장을 막지만, 저장 전에도 조기 반환해 불필요한 재고 연산 방지
         String idempotencyKey = "FORCE_CONFIRM:" + orderId;
         if (auditLogRepository.findByIdempotencyKey(idempotencyKey).isPresent()) {
             return OrderResponse.from(order);
@@ -58,9 +59,11 @@ public class AdminPaymentService {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
 
+        // 관리자가 verifyPayment()를 먼저 실행해 PG 상태를 기록해야만 강제 처리 가능
         PaymentVerification verification = paymentVerificationRepository.findFirstByOrderIdOrderByVerifiedAtDesc(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_VERIFY_REQUIRED));
 
+        // PG에서 실제로 SUCCESS가 아니면 강제 확정 차단 — 이중 결제/손실 방지
         if (verification.getPgStatus() != PgPaymentStatus.SUCCESS) {
             throw new BusinessException(ErrorCode.PAYMENT_VERIFY_MISMATCH);
         }
@@ -94,6 +97,7 @@ public class AdminPaymentService {
         PaymentVerification verification = paymentVerificationRepository.findFirstByOrderIdOrderByVerifiedAtDesc(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_VERIFY_REQUIRED));
 
+        // PG에서 실제로 FAIL이 아니면 강제 취소 차단 — 실제 결제된 금액을 취소 처리하는 실수 방지
         if (verification.getPgStatus() != PgPaymentStatus.FAIL) {
             throw new BusinessException(ErrorCode.PAYMENT_VERIFY_MISMATCH);
         }
