@@ -1128,6 +1128,8 @@ class OrderControllerTest {
         executor.shutdown();
 
         int finalStock = productVariantRepository.findById(variantId).get().getAvailableStock();
+        // 최소 1건은 성공해야 동시성 로직이 실제로 동작했음을 보장
+        assertThat(successCount.get()).isGreaterThan(0);
         // 성공 건수 + 잔여 재고 = 초기 재고 (과차감 없음, 누락 차감 없음)
         assertThat(finalStock).isEqualTo(initialStock - successCount.get());
         assertThat(finalStock).isGreaterThanOrEqualTo(0);
