@@ -15,6 +15,7 @@ public class FakePaymentGateway implements PaymentGateway {
     private final AtomicBoolean chargeWillFail = new AtomicBoolean(false);
     private final AtomicBoolean refundWillFail = new AtomicBoolean(false);
     private final ConcurrentHashMap<Long, PgPaymentStatus> queryOverrides = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger refundCallCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
     @Override
     public PaymentResult charge(Long orderId, long amount) {
@@ -36,6 +37,7 @@ public class FakePaymentGateway implements PaymentGateway {
 
     @Override
     public void refund(Long orderId, String pgTransactionId) {
+        refundCallCount.incrementAndGet();
         if (refundWillFail.get()) {
             throw new RuntimeException("FakePaymentGateway: refund will fail (test flag set)");
         }
@@ -56,10 +58,15 @@ public class FakePaymentGateway implements PaymentGateway {
         queryOverrides.put(orderId, status);
     }
 
+    public int getRefundCallCount() {
+        return refundCallCount.get();
+    }
+
     public void reset() {
         processed.clear();
         chargeWillFail.set(false);
         refundWillFail.set(false);
         queryOverrides.clear();
+        refundCallCount.set(0);
     }
 }

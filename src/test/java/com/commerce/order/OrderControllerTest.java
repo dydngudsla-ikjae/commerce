@@ -1137,7 +1137,7 @@ class OrderControllerTest {
     }
 
     @Test
-    @DisplayName("취소 API가 PAID 주문 동시 취소 요청에서 재고를 정확히 1회 복구한다")
+    @DisplayName("취소 API가 PAID 주문 동시 취소 요청에서 pg.refund()를 정확히 1회 호출하고 재고를 1회 복구한다")
     void cancelPaid_restores_stock_exactly_once_under_concurrent_requests() throws InterruptedException {
         Long categoryId = createCategory("의류");
         Long productId = createProduct("티셔츠", categoryId);
@@ -1178,6 +1178,46 @@ class OrderControllerTest {
 
         assertThat(orderRepository.findById(orderId).get().getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(productVariantRepository.findById(variantId).get().getAvailableStock()).isEqualTo(1);
+        assertThat(fakePaymentGateway.getRefundCallCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("취소 API가 CANCEL_IN_PROGRESS 주문에 재취소 요청 시 거부한다 (400, ORDER_INVALID_STATUS)")
+    void cancel_returns_400_when_order_is_cancel_in_progress() {
+        Long categoryId = createCategory("의류");
+        Long productId = createProduct("티셔츠", categoryId);
+        Long variantId = createVariant(productId, 10000L, 1);
+        Long orderId = createOrder(1L, List.of(Map.of("variantId", variantId, "quantity", 1)));
+
+        client.post()
+                .uri("/api/v1/orders/" + orderId + "/pay")
+                .header("Authorization", "Bearer " + customerToken(1L))
+                .retrieve()
+                .toBodilessEntity();
+
+        // 환불 실패 → CANCEL_IN_PROGRESS
+        fakePaymentGateway.setRefundWillFail(true);
+        assertThatThrownBy(() ->
+                client.post()
+                        .uri("/api/v1/orders/" + orderId + "/cancel")
+                        .header("Authorization", "Bearer " + customerToken(1L))
+                        .retrieve()
+                        .toBodilessEntity()
+        ).isInstanceOf(HttpServerErrorException.class);
+
+        // CANCEL_IN_PROGRESS 상태에서 재취소 → 400
+        fakePaymentGateway.setRefundWillFail(false);
+        var ex = catchThrowableOfType(
+                () -> client.post()
+                        .uri("/api/v1/orders/" + orderId + "/cancel")
+                        .header("Authorization", "Bearer " + customerToken(1L))
+                        .retrieve()
+                        .toBodilessEntity(),
+                HttpClientErrorException.BadRequest.class
+        );
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.getResponseBodyAsString()).contains("ORDER_INVALID_STATUS");
     }
 
     // ==================== 주문 목록 조회 API ====================
