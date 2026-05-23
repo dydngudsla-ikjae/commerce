@@ -62,7 +62,7 @@ public class OrderService {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
     }
 
     private OrderResponse doCreateOrder(Long memberId, CreateOrderRequest request) {
@@ -195,21 +195,36 @@ public class OrderService {
             throw new BusinessException(ErrorCode.PAYMENT_GATEWAY_ERROR);
         }
 
-        // TX2: pgTransactionId 저장
+        // TX2: pgTransactionId 저장 (낙관적 락 충돌 대비 재시도)
         final String pgTransactionId = pgResult.transactionId();
-        transactionTemplate.executeWithoutResult(status -> {
-            Order order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
-            order.savePgTransactionId(pgTransactionId);
-        });
+        for (int tx2Attempt = 0; tx2Attempt < MAX_RETRIES; tx2Attempt++) {
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    Order order = orderRepository.findById(orderId)
+                            .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+                    order.savePgTransactionId(pgTransactionId);
+                });
+                break;
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e) || tx2Attempt == MAX_RETRIES - 1) {
+                    // pgTransactionId 미저장 — PaymentInquiryScheduler가 PG inquiry로 복구
+                    log.warn("TX2 pgTransactionId 저장 실패 — PaymentInquiryScheduler가 처리합니다. orderId={}", orderId, e);
+                    return OrderResponse.from(orderRepository.findById(orderId)
+                            .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND)));
+                }
+                applyBackoff(tx2Attempt);
+            }
+        }
 
         // TX3: confirmPayment() — 재고 확정 + PAID
-        // 실패 시 예외 삼킴 (스케줄러가 처리)
+        // 일시적 실패는 삼키고 스케줄러에 위임. IllegalStateException은 내부 invariant 위반이므로 전파.
         try {
             return confirmPayment(orderId);
+        } catch (IllegalStateException e) {
+            log.error("confirmPayment 내부 불변 위반 — 즉시 조사 필요. orderId={}", orderId, e);
+            throw e;
         } catch (Exception e) {
             log.warn("confirmPayment 실패 — 스케줄러가 재시도합니다. orderId={}", orderId, e);
-            // PAYMENT_IN_PROGRESS 유지, 현재 상태 반환
             Order order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
             return OrderResponse.from(order);
@@ -230,7 +245,7 @@ public class OrderService {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
     }
 
     private OrderResponse doConfirmPayment(Long orderId) {
@@ -282,7 +297,7 @@ public class OrderService {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
     }
 
     private OrderResponse doCancel(Long memberId, Long orderId) {
@@ -310,16 +325,31 @@ public class OrderService {
      *   └ 실패 시: CANCEL_IN_PROGRESS 유지 (CancelRetryScheduler가 재시도)
      */
     private OrderResponse cancelPaid(Long memberId, Long orderId) {
-        // TX1: PAID → CANCEL_IN_PROGRESS 선점
-        String pgTransactionId = transactionTemplate.execute(status -> {
-            Order order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
-            if (!order.getMemberId().equals(memberId)) {
-                throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
+        // TX1: PAID → CANCEL_IN_PROGRESS 선점 (낙관적 락 충돌 대비 재시도)
+        String pgTransactionId = null;
+        for (int tx1Attempt = 0; tx1Attempt < MAX_RETRIES; tx1Attempt++) {
+            try {
+                pgTransactionId = transactionTemplate.execute(status -> {
+                    Order order = orderRepository.findById(orderId)
+                            .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+                    if (!order.getMemberId().equals(memberId)) {
+                        throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
+                    }
+                    order.startCancellation(); // PAID 아니면 ORDER_INVALID_STATUS
+                    return order.getPgTransactionId();
+                });
+                break;
+            } catch (RuntimeException e) {
+                if (!stockDeductionStrategy.isRetryable(e)) {
+                    throw e;
+                }
+                if (tx1Attempt < MAX_RETRIES - 1) {
+                    applyBackoff(tx1Attempt);
+                } else {
+                    throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
+                }
             }
-            order.startCancellation(); // PAID 아니면 ORDER_INVALID_STATUS
-            return order.getPgTransactionId();
-        });
+        }
 
         // [외부]: pg.refund() — 실패 시 CANCEL_IN_PROGRESS 유지, 스케줄러가 재시도
         try {
@@ -346,7 +376,7 @@ public class OrderService {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
     }
 
     private OrderResponse doCompleteCancel(Long orderId) {
@@ -382,7 +412,7 @@ public class OrderService {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.OUT_OF_STOCK);
+        throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
     }
 
     private void doExpireOrder(Long orderId) {

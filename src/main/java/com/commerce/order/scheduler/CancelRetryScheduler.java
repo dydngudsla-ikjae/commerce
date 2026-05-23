@@ -42,6 +42,8 @@ public class CancelRetryScheduler {
     public void processRetry(Order order) {
         Long orderId = order.getId();
         try {
+            // orderId를 환불 멱등키로 사용. 이전 refund()가 성공했지만 completeCancel()이 실패한 경우
+            // 재시도로 refund()가 다시 호출될 수 있으므로, PG 측에서 orderId 기준 중복 환불을 막아야 한다.
             paymentGateway.refund(orderId, order.getPgTransactionId());
             orderService.completeCancel(orderId);
             log.info("환불 재시도 성공: orderId={}", orderId);

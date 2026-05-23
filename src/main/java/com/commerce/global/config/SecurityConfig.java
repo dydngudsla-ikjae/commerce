@@ -53,6 +53,7 @@ public class SecurityConfig {
                                 "/api/v1/products",
                                 "/api/v1/products/**",
                                 "/api/v1/categories",
+                                "/webhook/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"

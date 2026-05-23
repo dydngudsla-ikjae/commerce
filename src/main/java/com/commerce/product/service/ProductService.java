@@ -101,6 +101,8 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
 
+        // check-then-act 패턴: 동시 요청 시 두 스레드 모두 통과할 수 있음.
+        // product_options(product_id, name) 유니크 제약이 최종 방어선 — DataIntegrityViolationException 발생 시 클라이언트 재시도 필요.
         if (productOptionRepository.existsByProductIdAndName(productId, request.name())) {
             throw new BusinessException(ErrorCode.OPTION_DUPLICATE);
         }
@@ -126,7 +128,8 @@ public class ProductService {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
         }
 
-        // 중복 옵션 조합 체크: DB 유니크 제약 대신 인메모리 비교 — 옵션 조합은 순서 무관 집합 비교라 SQL로 표현하기 어려움
+        // 중복 옵션 조합 체크: DB 유니크 제약 대신 인메모리 비교 — 옵션 조합은 순서 무관 집합 비교라 SQL로 표현하기 어려움.
+        // check-then-act이므로 동시 요청 시 중복 variant가 생성될 수 있음 (관리자 API, 실용적으로 허용).
         List<Long> requestedValueIds = request.optionValueIds() != null ? request.optionValueIds() : List.of();
         if (!requestedValueIds.isEmpty()) {
             checkDuplicateVariant(productId, requestedValueIds);
