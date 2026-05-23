@@ -14,7 +14,7 @@ public class FakePaymentGateway implements PaymentGateway {
     private final ConcurrentHashMap<Long, PaymentResult> processed = new ConcurrentHashMap<>();
     private final AtomicBoolean chargeWillFail = new AtomicBoolean(false);
     private final AtomicBoolean refundWillFail = new AtomicBoolean(false);
-    private final ConcurrentHashMap<Long, PgPaymentStatus> queryOverrides = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, PgInquiryResult> queryOverrides = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicInteger refundCallCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
     @Override
@@ -28,11 +28,15 @@ public class FakePaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public PgPaymentStatus query(Long orderId) {
+    public PgInquiryResult query(Long orderId) {
         if (queryOverrides.containsKey(orderId)) {
             return queryOverrides.get(orderId);
         }
-        return processed.containsKey(orderId) ? PgPaymentStatus.SUCCESS : PgPaymentStatus.UNKNOWN;
+        PaymentResult result = processed.get(orderId);
+        if (result != null) {
+            return new PgInquiryResult(PgPaymentStatus.SUCCESS, result.transactionId());
+        }
+        return new PgInquiryResult(PgPaymentStatus.UNKNOWN, null);
     }
 
     @Override
@@ -55,7 +59,7 @@ public class FakePaymentGateway implements PaymentGateway {
     }
 
     public void setQueryResult(Long orderId, PgPaymentStatus status) {
-        queryOverrides.put(orderId, status);
+        queryOverrides.put(orderId, new PgInquiryResult(status, null));
     }
 
     public int getRefundCallCount() {

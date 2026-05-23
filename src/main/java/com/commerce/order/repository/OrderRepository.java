@@ -44,4 +44,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findRetryablePaymentInProgressOrders(
             @Param("status") OrderStatus status,
             @Param("threshold") LocalDateTime threshold);
+
+    // pgTransactionId IS NULL: PG 호출 전 서버 다운이거나 TX2 전 서버 다운 — PG inquiry로 실제 결제 여부 확인 필요
+    @Query("SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.status = :status AND o.pgTransactionId IS NULL AND o.updatedAt < :threshold")
+    List<Order> findOrphanedPaymentInProgressOrders(
+            @Param("status") OrderStatus status,
+            @Param("threshold") LocalDateTime threshold);
 }

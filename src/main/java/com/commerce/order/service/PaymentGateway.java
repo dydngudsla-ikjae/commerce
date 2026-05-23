@@ -8,8 +8,8 @@ public interface PaymentGateway {
      */
     PaymentResult charge(Long orderId, long amount);
 
-    // 관리자 결제 검증용: PG사에서 orderId에 해당하는 결제 상태를 조회한다.
-    PgPaymentStatus query(Long orderId);
+    // orderId(멱등키)로 PG 결제 상태를 조회한다. SUCCESS이면 pgTransactionId도 함께 반환.
+    PgInquiryResult query(Long orderId);
 
     // 결제 취소(환불)를 요청한다. 실패 시 예외를 던진다.
     void refund(Long orderId, String pgTransactionId);

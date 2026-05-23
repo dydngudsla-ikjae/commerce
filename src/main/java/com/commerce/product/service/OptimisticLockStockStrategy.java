@@ -5,6 +5,7 @@ import com.commerce.global.exception.ErrorCode;
 import com.commerce.product.domain.ProductVariant;
 import com.commerce.product.repository.ProductVariantRepository;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.StaleObjectStateException;
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -66,6 +67,15 @@ public class OptimisticLockStockStrategy implements StockDeductionStrategy {
 
     @Override
     public boolean isRetryable(Exception e) {
-        return e instanceof OptimisticLockingFailureException;
+        Throwable current = e;
+        int depth = 0;
+        while (current != null && depth++ < 10) {
+            if (current instanceof OptimisticLockingFailureException
+                    || current instanceof StaleObjectStateException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

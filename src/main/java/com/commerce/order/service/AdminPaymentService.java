@@ -34,14 +34,14 @@ public class AdminPaymentService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
 
-        PgPaymentStatus pgStatus = paymentGateway.query(orderId);
+        PgInquiryResult inquiry = paymentGateway.query(orderId);
         String pgTransactionId = order.getPgTransactionId();
 
         PaymentVerification verification = PaymentVerification.create(
-                orderId, pgTransactionId, pgStatus, verifiedBy);
+                orderId, pgTransactionId, inquiry.status(), verifiedBy);
         paymentVerificationRepository.save(verification);
 
-        return new VerifyPaymentResponse(orderId, pgTransactionId, pgStatus, verification.getVerifiedAt());
+        return new VerifyPaymentResponse(orderId, pgTransactionId, inquiry.status(), verification.getVerifiedAt());
     }
 
     @Transactional
@@ -68,7 +68,7 @@ public class AdminPaymentService {
             throw new BusinessException(ErrorCode.PAYMENT_VERIFY_MISMATCH);
         }
 
-        order.confirmPaid();
+        order.forceConfirmByAdmin();
 
         List<StockDeductionCommand> commands = order.getItems().stream()
                 .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))

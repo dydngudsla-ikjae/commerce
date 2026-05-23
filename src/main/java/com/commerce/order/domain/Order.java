@@ -79,6 +79,12 @@ public class Order {
     }
 
     public void savePgTransactionId(String pgTransactionId) {
+        if (this.pgTransactionId != null) {
+            if (!this.pgTransactionId.equals(pgTransactionId)) {
+                throw new BusinessException(ErrorCode.PG_TRANSACTION_ID_MISMATCH);
+            }
+            return; // 같은 값 — 멱등
+        }
         this.pgTransactionId = pgTransactionId;
     }
 
@@ -87,8 +93,15 @@ public class Order {
         if (this.status == OrderStatus.PAID) {
             return;
         }
-        // PAYMENT_FAILED 도 허용: 관리자 forceConfirm 경로
-        if (this.status != OrderStatus.PAYMENT_IN_PROGRESS && this.status != OrderStatus.PAYMENT_FAILED) {
+        if (this.status != OrderStatus.PAYMENT_IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
+        this.status = OrderStatus.PAID;
+    }
+
+    // 관리자 전용: PAYMENT_FAILED → PAID. 일반 결제 confirm 경로(confirmPaid)와 분리.
+    public void forceConfirmByAdmin() {
+        if (this.status != OrderStatus.PAYMENT_FAILED) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
         }
         this.status = OrderStatus.PAID;

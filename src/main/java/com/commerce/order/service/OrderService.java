@@ -25,8 +25,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -53,6 +56,7 @@ public class OrderService {
                 if (!stockDeductionStrategy.isRetryable(e)) {
                     throw e;
                 }
+                log.warn("재고 예약 낙관적 락 충돌 — 재시도 {}/{}: memberId={}", attempt + 1, MAX_RETRIES, memberId);
                 if (attempt < MAX_RETRIES - 1) {
                     applyBackoff(attempt);
                 }
@@ -62,50 +66,94 @@ public class OrderService {
     }
 
     private OrderResponse doCreateOrder(Long memberId, CreateOrderRequest request) {
-        // fetch join으로 product 한 번에 조회 (N+1 방지)
-        List<Long> variantIds = request.items().stream()
-                .map(item -> item.variantId())
-                .toList();
+        // 중복 variantId → 수량 합산 (같은 variant를 두 번 reserve하면 영속성 컨텍스트 내 동일 인스턴스에 중복 차감)
+        Map<Long, Integer> quantityByVariant = new LinkedHashMap<>();
+        for (var item : request.items()) {
+            quantityByVariant.merge(item.variantId(), item.quantity(), Integer::sum);
+        }
 
-        Map<Long, ProductVariant> variantMap = productVariantRepository.findByIdInWithProduct(variantIds)
+        // fetch join으로 product 한 번에 조회 (N+1 방지)
+        Map<Long, ProductVariant> variantMap = productVariantRepository
+                .findByIdInWithProduct(new ArrayList<>(quantityByVariant.keySet()))
                 .stream()
                 .collect(Collectors.toMap(ProductVariant::getId, v -> v));
 
         long totalAmount = 0L;
-        for (var itemRequest : request.items()) {
-            ProductVariant variant = variantMap.get(itemRequest.variantId());
+        List<StockDeductionCommand> commands = new ArrayList<>();
+
+        for (var entry : quantityByVariant.entrySet()) {
+            Long variantId = entry.getKey();
+            int quantity = entry.getValue();
+            ProductVariant variant = variantMap.get(variantId);
             if (variant == null) {
                 throw new BusinessException(ErrorCode.VARIANT_NOT_FOUND);
             }
             if (variant.getStatus() != VariantStatus.ON_SALE) {
                 throw new BusinessException(ErrorCode.VARIANT_SOLD_OUT);
             }
-            totalAmount += variant.getPrice() * itemRequest.quantity();
+            totalAmount += variant.getPrice() * quantity;
+            commands.add(new StockDeductionCommand(variantId, quantity));
         }
 
-        List<StockDeductionCommand> commands = request.items().stream()
-                .map(item -> new StockDeductionCommand(item.variantId(), item.quantity()))
-                .toList();
         // 재고 예약 → Order 저장 순서. 반대로 하면 재고 예약 실패 시 이미 저장된 주문이 남는다.
         stockDeductionStrategy.reserve(commands);
 
         Order order = Order.create(memberId, totalAmount);
         orderRepository.save(order);
 
-        for (var itemRequest : request.items()) {
-            ProductVariant variant = variantMap.get(itemRequest.variantId());
-            OrderItem item = OrderItem.create(order, itemRequest.variantId(),
-                    variant.getProduct().getName(), variant.getPrice(), itemRequest.quantity());
+        for (var entry : quantityByVariant.entrySet()) {
+            Long variantId = entry.getKey();
+            ProductVariant variant = variantMap.get(variantId); // 위 루프에서 검증 완료 — null 불가
+            OrderItem item = OrderItem.create(order, variantId,
+                    variant.getProduct().getName(), variant.getPrice(), entry.getValue());
             order.getItems().add(item);
         }
 
         return OrderResponse.from(order);
     }
 
+    // PG inquiry로 결제 확인 후 복구: pgTransactionId 저장 → confirmPayment
+    public void recoverPayment(Long orderId, String pgTransactionId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+            order.savePgTransactionId(pgTransactionId);
+        });
+        confirmPayment(orderId);
+    }
+
+    // PG 명시 실패 시 재고 해제 + CANCELLED. release()의 낙관적 락 충돌 대비 재시도 루프 포함.
+    public void cancelByPgFailureWithRetry(Long orderId) {
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    Order order = orderRepository.findByIdWithItems(orderId)
+                            .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+                    List<StockDeductionCommand> commands = order.getItems().stream()
+                            .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
+                            .toList();
+                    order.cancelByPgFailure();
+                    stockDeductionStrategy.release(commands);
+                });
+                return;
+            } catch (RuntimeException ex) {
+                if (!stockDeductionStrategy.isRetryable(ex)) {
+                    throw ex;
+                }
+                log.warn("PG 실패 처리 중 낙관적 락 충돌 — 재시도 {}/{}: orderId={}", attempt + 1, MAX_RETRIES, orderId);
+                if (attempt < MAX_RETRIES - 1) {
+                    applyBackoff(attempt);
+                }
+            }
+        }
+        throw new BusinessException(ErrorCode.CONCURRENT_CONFLICT);
+    }
+
     private void applyBackoff(int attempt) {
         long base = (long) (INITIAL_DELAY_MS * Math.pow(MULTIPLIER, attempt));
         // jitter: 동시 충돌한 스레드들이 같은 간격으로 재시도하면 계속 충돌하므로 무작위 편차 추가
-        long jitter = (long) (Math.random() * base);
+        // Math.random() 대신 ThreadLocalRandom: 스레드 간 내부 동기화 컨텐션 없음
+        long jitter = ThreadLocalRandom.current().nextLong(base + 1);
         try {
             Thread.sleep(base + jitter);
         } catch (InterruptedException e) {
@@ -138,15 +186,7 @@ public class OrderService {
             pgResult = paymentGateway.charge(orderId, capturedAmount);
         } catch (PgChargeException e) {
             // PG가 실패를 명시적으로 반환 → 재고 해제 + CANCELLED
-            transactionTemplate.executeWithoutResult(status -> {
-                Order order = orderRepository.findByIdWithItems(orderId)
-                        .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
-                List<StockDeductionCommand> commands = order.getItems().stream()
-                        .map(item -> new StockDeductionCommand(item.getVariantId(), item.getQuantity()))
-                        .toList();
-                order.cancelByPgFailure();
-                stockDeductionStrategy.release(commands);
-            });
+            cancelByPgFailureWithRetry(orderId);
             throw new BusinessException(ErrorCode.PAYMENT_GATEWAY_ERROR);
         } catch (Exception e) {
             // 예기치 않은 오류 (네트워크 타임아웃 등) — PG 청구 여부 불명확
@@ -184,6 +224,7 @@ public class OrderService {
                 if (!stockDeductionStrategy.isRetryable(e)) {
                     throw e;
                 }
+                log.warn("재고 확정 낙관적 락 충돌 — 재시도 {}/{}: orderId={}", attempt + 1, MAX_RETRIES, orderId);
                 if (attempt < MAX_RETRIES - 1) {
                     applyBackoff(attempt);
                 }
@@ -200,9 +241,12 @@ public class OrderService {
         if (order.getStatus() == OrderStatus.PAID) {
             return OrderResponse.from(order);
         }
-        if (order.getStatus() != OrderStatus.PAYMENT_IN_PROGRESS
-                && order.getStatus() != OrderStatus.PAYMENT_FAILED) {
+        if (order.getStatus() != OrderStatus.PAYMENT_IN_PROGRESS) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS);
+        }
+        // pgTransactionId 없이 confirm 시도 = PG 호출 전 서버 종료 상태 — 내부 invariant 위반
+        if (order.getPgTransactionId() == null) {
+            throw new IllegalStateException("pgTransactionId 없이 confirmPayment 시도: orderId=" + orderId);
         }
 
         order.confirmPaid();
